@@ -46,11 +46,16 @@ class PromptLM:
             raise NotImplementedError
 
     def _initialize_pipeline(self) -> HuggingFacePipeline:
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            device = 0
+        else:
+            device = -1
+
         return HuggingFacePipeline.from_model_id(
             model_id=models_info[self.model_name]["model_id"],
             task=models_info[self.model_name]["hf_pipeline_task"],
-            device=0,
+            device=device,
             model_kwargs=self.model_kwargs,
             pipeline_kwargs=self.pipeline_kwargs,
         )
