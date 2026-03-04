@@ -5,6 +5,10 @@ CUR_DIR_PATH = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(os.path.dirname(CUR_DIR_PATH))
 
 import torch
+import warnings
+
+# Suppress transformers pipeline warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='transformers')
 
 # https://python.langchain.com/v0.1/docs/integrations/llms/huggingface_pipelines/
 from langchain_community.llms.huggingface_pipeline import HuggingFacePipeline

@@ -17,6 +17,7 @@ import json
 import copy
 import logging
 from datetime import datetime
+from datetime import datetime
 
 
 CUR_DIR_PATH = os.path.dirname(os.path.realpath(__file__))
@@ -95,7 +96,7 @@ def main(args):
         f"alpha_{ALPHA}_normalized.json",
     )
     
-    # Set up logging
+    # Set up logging (save to both locations: experiment_results and logs/)
     log_file = os.path.join(
         CUR_DIR_PATH,
         "experiment_results",
@@ -104,13 +105,23 @@ def main(args):
         RETRIEVER_NAME,
         f"alpha_{ALPHA}_normalize.log",
     )
+    
+    # Also create log in tracked logs/ directory
+    logs_dir = os.path.join(CUR_DIR_PATH, "logs", GENERATOR_NAME, f"lamp{LAMP_NUM}", RETRIEVER_NAME)
+    os.makedirs(logs_dir, exist_ok=True)
+    tracked_log_file = os.path.join(logs_dir, f"alpha_{ALPHA}_normalize.log")
+    
     logger.handlers.clear()
     logger.setLevel(logging.INFO)
-    fh = logging.FileHandler(log_file, mode='w')
-    fh.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
+    
+    # Add handlers for both locations
+    for log_path in [log_file, tracked_log_file]:
+        fh = logging.FileHandler(log_path, mode='w')
+        fh.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+        fh.setFormatter(formatter)
+        fh.flush()  # Ensure handler flushes
+        logger.addHandler(fh)
     
     logger.info(f"{'='*60}")
     logger.info(f"EU Normalization Configuration")
@@ -182,13 +193,22 @@ def main(args):
     logger.info(f"Normalized EU - Min: {float(np.min(normalized_eu_vals)):.6f}, Max: {float(np.max(normalized_eu_vals)):.6f}")
     logger.info(f"{'='*60}")
     
+    # Flush before saving results
+    for handler in logger.handlers:
+        handler.flush()
+    
     # Save the normalized results file
     with open(SAVE_FP, "w") as f:
         json.dump(save_dict, f, indent=2)
     f.close()
     
     logger.info(f"Results saved to: {SAVE_FP}")
-    logger.info(f"Log saved to: {log_file}")
+    logger.info(f"Tracked log saved to: {tracked_log_file} (committed to git)")
+    logger.info(f"Normalization completed successfully at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Final flush to ensure all logs are written
+    for handler in logger.handlers:
+        handler.flush()
 
 
 if __name__ == "__main__":

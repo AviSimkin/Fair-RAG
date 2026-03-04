@@ -1,0 +1,14 @@
+# This directory is kept in git to track experiment logs
+
+Logs are organized as: logs/{generator}/{lamp_num}/{retriever}/
+
+Example structure:
+- logs/flanT5Small/lamp1/bm25/alpha_1.log
+- logs/flanT5Small/lamp1/bm25/alpha_1_normalize.log
+
+The logs directory complements experiment_results/ by:
+1. Storing persistent records of all experiment runs (committed to git)
+2. Tracking configuration, progress, and performance metrics
+3. Enabling easy debugging if experiments are interrupted
+
+Large result files (.json) are kept in experiment_results/ only (not in git).

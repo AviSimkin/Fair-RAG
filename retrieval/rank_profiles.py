@@ -4,11 +4,15 @@ Save deterministic retrieval results from BM25, Contriever, and SPLADE
 """
 
 import torch
+import warnings
 from transformers import AutoModel, AutoTokenizer, AutoModelForMaskedLM
 import json
 from tqdm import tqdm
 import argparse
 import os
+
+# Suppress transformers warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='transformers')
 
 # Adapted bm25
 from bm25 import BM25Okapi

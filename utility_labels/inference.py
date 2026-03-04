@@ -11,11 +11,15 @@ CUR_DIR_PATH = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(os.path.dirname(CUR_DIR_PATH))
 
 import argparse
+import warnings
 from typing import List
 from transformers import AutoTokenizer
 from utils import models_info, trim_sentence_by_token_len
 from data.lamp_handler import LaMPHandler
 from generator.lm import PromptLM
+
+# Suppress transformers warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='transformers')
 
 
 def main(args):

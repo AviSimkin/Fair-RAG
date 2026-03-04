@@ -5,11 +5,15 @@ CUR_DIR_PATH = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(os.path.dirname(CUR_DIR_PATH))
 
 import torch
+import warnings
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from transformers import BitsAndBytesConfig
 from accelerate import Accelerator
 from transformers.tokenization_utils_base import VERY_LARGE_INTEGER
 from utils import models_info
+
+# Suppress transformers pipeline warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='transformers')
 
 # Skipping logging into huggingface hub
 

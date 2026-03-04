@@ -27,6 +27,10 @@ import numpy as np
 import json
 from transformers import AutoTokenizer
 from datetime import datetime
+import warnings
+
+# Suppress transformers warnings
+warnings.filterwarnings('ignore', category=UserWarning, module='transformers')
 
 from utils import (
     models_info,
@@ -117,15 +121,25 @@ def main(args):
     )
     os.makedirs(EXP_RESULTS_DIR_PATH, exist_ok=True)
     
-    # Set up logging
+    # Set up logging with immediate flush (save to both locations: experiment_results and logs/)
     log_file = os.path.join(EXP_RESULTS_DIR_PATH, f"alpha_{ALPHA}.log")
+    
+    # Also create log in tracked logs/ directory
+    logs_dir = os.path.join(CUR_DIR_PATH, "logs", GENERATOR_NAME, f"lamp{LAMP_NUM}", RETRIEVER_NAME)
+    os.makedirs(logs_dir, exist_ok=True)
+    tracked_log_file = os.path.join(logs_dir, f"alpha_{ALPHA}.log")
+    
     logger.handlers.clear()
     logger.setLevel(logging.INFO)
-    fh = logging.FileHandler(log_file, mode='w')
-    fh.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-    fh.setFormatter(formatter)
-    logger.addHandler(fh)
+    
+    # Add handlers for both locations
+    for log_path in [log_file, tracked_log_file]:
+        fh = logging.FileHandler(log_path, mode='w')
+        fh.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+        fh.setFormatter(formatter)
+        fh.flush()  # Ensure handler flushes
+        logger.addHandler(fh)
     
     # Log experiment configuration
     logger.info(f"{'='*60}")
@@ -202,7 +216,12 @@ def main(args):
         assert input_entry["id"] == output_entry["id"]
         qid: str = input_entry["id"]
         if query_idx % 10 == 0 or query_idx == total_queries:
-            print(f"  Progress: {query_idx}/{total_queries} queries completed", flush=True)
+            progress_msg = f"Progress: {query_idx}/{total_queries} queries completed"
+            print(f"  {progress_msg}", flush=True)
+            logger.info(progress_msg)
+            # Flush to ensure progress is saved even if process is interrupted
+            for handler in logger.handlers:
+                handler.flush()
         entry_question: str = input_entry["input"]
         entry_target: str = output_entry["output"]  # gold label
         qid_results_map.update(
@@ -322,11 +341,21 @@ def main(args):
     
     logger.info(f"{'='*60}")
     logger.info(f"Results saved to: {EXP_RESULTS_FP}")
+    logger.info(f"Tracked log saved to: {tracked_log_file} (committed to git)")
+    
+    # Flush before saving results
+    for handler in logger.handlers:
+        handler.flush()
 
     # Write experiment results for the LAMP_NUM
     with open(EXP_RESULTS_FP, "w") as f:
         json.dump(qid_results_map, f, indent=2)
         f.close()
+    
+    logger.info(f"Experiment completed successfully at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    # Final flush to ensure all logs are written
+    for handler in logger.handlers:
+        handler.flush()
 
 
 if __name__ == "__main__":

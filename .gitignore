@@ -13,9 +13,11 @@ experiment_results/
 *.png
 *.pdf
 
-# log files
+# log files (but allow logs in committed logs/ directory)
 *.log
 *.err
+!logs/
+!logs/**/*.log
 
 # Jupyter Notebook
 .ipynb_checkpoints
