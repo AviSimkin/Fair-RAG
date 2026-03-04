@@ -26,6 +26,7 @@ import argparse
 import numpy as np
 import json
 from transformers import AutoTokenizer
+from datetime import datetime
 
 from utils import (
     models_info,
@@ -115,6 +116,28 @@ def main(args):
         RETRIEVER_NAME,
     )
     os.makedirs(EXP_RESULTS_DIR_PATH, exist_ok=True)
+    
+    # Set up logging
+    log_file = os.path.join(EXP_RESULTS_DIR_PATH, f"alpha_{ALPHA}.log")
+    logger.handlers.clear()
+    logger.setLevel(logging.INFO)
+    fh = logging.FileHandler(log_file, mode='w')
+    fh.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+    
+    # Log experiment configuration
+    logger.info(f"{'='*60}")
+    logger.info(f"Experiment Configuration")
+    logger.info(f"{'='*60}")
+    logger.info(f"LaMP Number: {LAMP_NUM}")
+    logger.info(f"Generator: {GENERATOR_NAME}")
+    logger.info(f"Retriever: {RETRIEVER_NAME}")
+    logger.info(f"Alpha: {ALPHA}")
+    logger.info(f"K (top-k): {K}")
+    logger.info(f"N Samples: {N_SAMPLES}")
+    
     EXP_RESULTS_FP = os.path.join(EXP_RESULTS_DIR_PATH, f"alpha_{ALPHA}.json")
     del EXP_RESULTS_DIR_PATH
     RETRIEVAL_RESULTS_FP = os.path.join(
@@ -154,6 +177,10 @@ def main(args):
     else:
         metric_name = "rouge-l"
         metric_fn = get_metric_fn_rouge_L()
+    
+    # Update logging with metric name
+    logger.info(f"Metric: {metric_name}")
+    logger.info(f"{'='*60}\n")
 
     # qid_results_map:
     # {
@@ -162,11 +189,20 @@ def main(args):
     #       }
     # }
     qid_results_map = dict()
+    
+    # Convert iterators to lists to get total count for progress reporting
+    inputs_list = list(inputs_file_iterator)
+    outputs_list = list(outputs_file_iterator)
+    total_queries = len(inputs_list)
+    
+    print(f"Processing {total_queries} queries...", flush=True)
+    
     # Iterate over qids
-    for input_entry, output_entry in zip(inputs_file_iterator, outputs_file_iterator):
+    for query_idx, (input_entry, output_entry) in enumerate(zip(inputs_list, outputs_list), 1):
         assert input_entry["id"] == output_entry["id"]
         qid: str = input_entry["id"]
-        print(f"qid: {qid}", flush=True)
+        if query_idx % 10 == 0 or query_idx == total_queries:
+            print(f"  Progress: {query_idx}/{total_queries} queries completed", flush=True)
         entry_question: str = input_entry["input"]
         entry_target: str = output_entry["output"]  # gold label
         qid_results_map.update(
@@ -217,7 +253,6 @@ def main(args):
         # returns {'disparity': float, 'relevance': float, 'difference': float}
         ee_results: dict = expeval.run(parameters=ee_eval_params, k=k)
         qid_results_map[qid]["EE"] = ee_results  # update qid_results_map's EE
-        print(f"{qid}: EE: {ee_results}", flush=True)
         if args.remove_temp_files:
             os.remove(trec_top_file_fp)
             os.remove(trec_rel_file_fp)
@@ -251,7 +286,6 @@ def main(args):
                 ranking_pred_map.update({str(ranking): pred})
             else:
                 pred = ranking_pred_map[str(ranking)]
-            print(f"ranking: {str(ranking)}; pred: {pred}", flush=True)
             preds.append(pred)
 
         # Evaluation of N_SAMPLE pred-target pairs and get one EU
@@ -264,7 +298,30 @@ def main(args):
         qid_results_map[qid]["EU"] = {metric_name: expected_utility}
         qid_results_map[qid]["max-utility"] = max(metric_scores)
         qid_results_map[qid]["min-utility"] = min(metric_scores)
-        print(f"results:\n {qid_results_map[qid]}\n\n", flush=True)
+
+    # Print and log summary statistics
+    print(f"\nCompleted {total_queries} queries.", flush=True)
+    logger.info(f"\nExperiment Results Summary")
+    logger.info(f"{'='*60}")
+    logger.info(f"Total queries processed: {total_queries}")
+    
+    if qid_results_map:
+        ee_diffs = [v["EE"]["difference"] for v in qid_results_map.values()]
+        eu_vals = [v["EU"][metric_name] for v in qid_results_map.values()]
+        
+        ee_mean = float(np.mean(ee_diffs))
+        ee_std = float(np.std(ee_diffs))
+        eu_mean = float(np.mean(eu_vals))
+        eu_std = float(np.std(eu_vals))
+        
+        print(f"Summary - EE Difference: mean={ee_mean:.4f}, std={ee_std:.4f}", flush=True)
+        print(f"Summary - Expected Utility: mean={eu_mean:.4f}, std={eu_std:.4f}", flush=True)
+        
+        logger.info(f"EE Difference - Mean: {ee_mean:.6f}, Std: {ee_std:.6f}")
+        logger.info(f"Expected Utility - Mean: {eu_mean:.6f}, Std: {eu_std:.6f}")
+    
+    logger.info(f"{'='*60}")
+    logger.info(f"Results saved to: {EXP_RESULTS_FP}")
 
     # Write experiment results for the LAMP_NUM
     with open(EXP_RESULTS_FP, "w") as f:

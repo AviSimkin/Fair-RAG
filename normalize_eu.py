@@ -15,9 +15,12 @@ import argparse
 import numpy as np
 import json
 import copy
+import logging
+from datetime import datetime
 
 
 CUR_DIR_PATH = os.path.dirname(os.path.realpath(__file__))
+logger = logging.getLogger()
 
 
 def lamp_utility_metric(lamp_num) -> str:
@@ -91,6 +94,32 @@ def main(args):
         RETRIEVER_NAME,
         f"alpha_{ALPHA}_normalized.json",
     )
+    
+    # Set up logging
+    log_file = os.path.join(
+        CUR_DIR_PATH,
+        "experiment_results",
+        GENERATOR_NAME,
+        f"lamp{LAMP_NUM}",
+        RETRIEVER_NAME,
+        f"alpha_{ALPHA}_normalize.log",
+    )
+    logger.handlers.clear()
+    logger.setLevel(logging.INFO)
+    fh = logging.FileHandler(log_file, mode='w')
+    fh.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+    
+    logger.info(f"{'='*60}")
+    logger.info(f"EU Normalization Configuration")
+    logger.info(f"{'='*60}")
+    logger.info(f"LaMP Number: {LAMP_NUM}")
+    logger.info(f"Generator: {GENERATOR_NAME}")
+    logger.info(f"Retriever: {RETRIEVER_NAME}")
+    logger.info(f"Alpha: {ALPHA}")
+    logger.info(f"{'='*60}\n")
 
     utility_metric = lamp_utility_metric(LAMP_NUM)
     save_dict = copy.deepcopy(model_results_dict)
@@ -144,10 +173,22 @@ def main(args):
         # save the normalized EU
         save_dict[qid]["EU"][utility_metric] = normalized_eu
 
+    # Log summary statistics before saving
+    logger.info(f"\nNormalization Results Summary")
+    logger.info(f"{'='*60}")
+    normalized_eu_vals = [save_dict[qid]["EU"][utility_metric] for qid in save_dict]
+    logger.info(f"Total queries normalized: {len(normalized_eu_vals)}")
+    logger.info(f"Normalized EU - Mean: {float(np.mean(normalized_eu_vals)):.6f}, Std: {float(np.std(normalized_eu_vals)):.6f}")
+    logger.info(f"Normalized EU - Min: {float(np.min(normalized_eu_vals)):.6f}, Max: {float(np.max(normalized_eu_vals)):.6f}")
+    logger.info(f"{'='*60}")
+    
     # Save the normalized results file
     with open(SAVE_FP, "w") as f:
         json.dump(save_dict, f, indent=2)
     f.close()
+    
+    logger.info(f"Results saved to: {SAVE_FP}")
+    logger.info(f"Log saved to: {log_file}")
 
 
 if __name__ == "__main__":
