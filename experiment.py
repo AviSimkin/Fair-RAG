@@ -106,6 +106,9 @@ def main(args):
     ALPHA: int = args.alpha
     K: int = args.k
     N_SAMPLES: int = args.n_samples
+    MAX_QUERIES: int = args.max_queries
+    QUERY_BATCH_SIZE: int = args.query_batch_size
+    RUN_ID: str = args.run_id
     REL_MAPPING_FP = os.path.join(
         CUR_DIR_PATH,
         "data",
@@ -121,13 +124,19 @@ def main(args):
     )
     os.makedirs(EXP_RESULTS_DIR_PATH, exist_ok=True)
     
+    # Build log file name with run_id to avoid overwriting
+    if RUN_ID:
+        log_suffix = f"alpha_{ALPHA}_{RUN_ID}.log"
+    else:
+        log_suffix = f"alpha_{ALPHA}.log"
+    
     # Set up logging with immediate flush (save to both locations: experiment_results and logs/)
-    log_file = os.path.join(EXP_RESULTS_DIR_PATH, f"alpha_{ALPHA}.log")
+    log_file = os.path.join(EXP_RESULTS_DIR_PATH, log_suffix)
     
     # Also create log in tracked logs/ directory
     logs_dir = os.path.join(CUR_DIR_PATH, "logs", GENERATOR_NAME, f"lamp{LAMP_NUM}", RETRIEVER_NAME)
     os.makedirs(logs_dir, exist_ok=True)
-    tracked_log_file = os.path.join(logs_dir, f"alpha_{ALPHA}.log")
+    tracked_log_file = os.path.join(logs_dir, log_suffix)
     
     logger.handlers.clear()
     logger.setLevel(logging.INFO)
@@ -151,6 +160,9 @@ def main(args):
     logger.info(f"Alpha: {ALPHA}")
     logger.info(f"K (top-k): {K}")
     logger.info(f"N Samples: {N_SAMPLES}")
+    if MAX_QUERIES:
+        logger.info(f"Max Queries: {MAX_QUERIES}")
+    logger.info(f"Query Batch Size: {QUERY_BATCH_SIZE}")
     
     EXP_RESULTS_FP = os.path.join(EXP_RESULTS_DIR_PATH, f"alpha_{ALPHA}.json")
     del EXP_RESULTS_DIR_PATH
@@ -207,7 +219,15 @@ def main(args):
     # Convert iterators to lists to get total count for progress reporting
     inputs_list = list(inputs_file_iterator)
     outputs_list = list(outputs_file_iterator)
-    total_queries = len(inputs_list)
+    original_total = len(inputs_list)
+    total_queries = original_total
+    
+    # Apply max_queries limit if specified
+    if MAX_QUERIES and MAX_QUERIES < total_queries:
+        inputs_list = inputs_list[:MAX_QUERIES]
+        outputs_list = outputs_list[:MAX_QUERIES]
+        total_queries = MAX_QUERIES
+        logger.info(f"Limiting to {MAX_QUERIES} queries (original dataset had {original_total} queries)")
     
     print(f"Processing {total_queries} queries...", flush=True)
     
@@ -215,7 +235,7 @@ def main(args):
     for query_idx, (input_entry, output_entry) in enumerate(zip(inputs_list, outputs_list), 1):
         assert input_entry["id"] == output_entry["id"]
         qid: str = input_entry["id"]
-        if query_idx % 10 == 0 or query_idx == total_queries:
+        if query_idx % QUERY_BATCH_SIZE == 0 or query_idx == total_queries:
             progress_msg = f"Progress: {query_idx}/{total_queries} queries completed"
             print(f"  {progress_msg}", flush=True)
             logger.info(progress_msg)
@@ -426,6 +446,24 @@ if __name__ == "__main__":
         "--multi_gpus",
         action="store_true",
         help="Use multiple GPUs for distributed inference",
+    )
+    parser.add_argument(
+        "--max_queries",
+        type=int,
+        default=None,
+        help="Maximum number of queries to process (None = all)",
+    )
+    parser.add_argument(
+        "--query_batch_size",
+        type=int,
+        default=10,
+        help="Report stats every N queries",
+    )
+    parser.add_argument(
+        "--run_id",
+        type=str,
+        default="",
+        help="Run ID for timestamped logging (to avoid overwriting)",
     )
     args = parser.parse_args()
 

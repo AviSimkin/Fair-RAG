@@ -1,0 +1,28 @@
+2026-03-05 21:29:29 - ============================================================
+2026-03-05 21:29:29 - Experiment Configuration
+2026-03-05 21:29:29 - ============================================================
+2026-03-05 21:29:29 - LaMP Number: 4
+2026-03-05 21:29:29 - Generator: flanT5Small
+2026-03-05 21:29:29 - Retriever: gold
+2026-03-05 21:29:29 - Alpha: 8
+2026-03-05 21:29:29 - K (top-k): 5
+2026-03-05 21:29:29 - N Samples: 8
+2026-03-05 21:29:29 - Max Queries: 30
+2026-03-05 21:29:29 - Query Batch Size: 10
+2026-03-05 21:29:31 - Metric: rouge-l
+2026-03-05 21:29:31 - ============================================================
+
+2026-03-05 21:29:31 - Limiting to 30 queries (original dataset had 833 queries)
+2026-03-05 21:31:39 - Progress: 10/30 queries completed
+2026-03-05 21:33:56 - Progress: 20/30 queries completed
+2026-03-05 21:36:04 - Progress: 30/30 queries completed
+2026-03-05 21:36:19 - 
+Experiment Results Summary
+2026-03-05 21:36:19 - ============================================================
+2026-03-05 21:36:19 - Total queries processed: 30
+2026-03-05 21:36:19 - EE Difference - Mean: 0.068767, Std: 0.029970
+2026-03-05 21:36:19 - Expected Utility - Mean: 0.061210, Std: 0.031916
+2026-03-05 21:36:19 - ============================================================
+2026-03-05 21:36:19 - Results saved to: /home/student/Fair-RAG/experiment_results/flanT5Small/lamp4/gold/alpha_8.json
+2026-03-05 21:36:19 - Tracked log saved to: /home/student/Fair-RAG/logs/flanT5Small/lamp4/gold/alpha_8_2026-03-05_21-02-20.log (committed to git)
+2026-03-05 21:36:19 - Experiment completed successfully at 2026-03-05 21:36:19

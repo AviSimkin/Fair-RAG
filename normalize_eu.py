@@ -43,6 +43,7 @@ def main(args):
     GENERATOR_NAME = args.generator_name
     RETRIEVER_NAME = args.retriever_name  # deterministic retriever
     ALPHA: int = args.alpha  # for current alpha's result to normalize
+    RUN_ID: str = args.run_id
     ALPHAS: list = [1, 2, 4, 8]  # to search for the max utility across all alphas
     # access to gold model's experiment results
     GOLD_RESULTS_FP = os.path.join(
@@ -96,6 +97,12 @@ def main(args):
         f"alpha_{ALPHA}_normalized.json",
     )
     
+    # Build log file name with run_id to avoid overwriting
+    if RUN_ID:
+        log_suffix = f"alpha_{ALPHA}_normalize_{RUN_ID}.log"
+    else:
+        log_suffix = f"alpha_{ALPHA}_normalize.log"
+    
     # Set up logging (save to both locations: experiment_results and logs/)
     log_file = os.path.join(
         CUR_DIR_PATH,
@@ -103,13 +110,13 @@ def main(args):
         GENERATOR_NAME,
         f"lamp{LAMP_NUM}",
         RETRIEVER_NAME,
-        f"alpha_{ALPHA}_normalize.log",
+        log_suffix,
     )
     
     # Also create log in tracked logs/ directory
     logs_dir = os.path.join(CUR_DIR_PATH, "logs", GENERATOR_NAME, f"lamp{LAMP_NUM}", RETRIEVER_NAME)
     os.makedirs(logs_dir, exist_ok=True)
-    tracked_log_file = os.path.join(logs_dir, f"alpha_{ALPHA}_normalize.log")
+    tracked_log_file = os.path.join(logs_dir, log_suffix)
     
     logger.handlers.clear()
     logger.setLevel(logging.INFO)
@@ -238,6 +245,12 @@ if __name__ == "__main__":
         type=int,
         required=True,
         help="Fairness control parameter in Plackett-Luce Sampling; alpha's result to normalize",
+    )
+    parser.add_argument(
+        "--run_id",
+        type=str,
+        default="",
+        help="Run ID for timestamped logging (to avoid overwriting)",
     )
     args = parser.parse_args()
 
