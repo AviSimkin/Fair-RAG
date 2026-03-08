@@ -345,18 +345,23 @@ def main(args):
     logger.info(f"Total queries processed: {total_queries}")
     
     if qid_results_map:
-        ee_diffs = [v["EE"]["difference"] for v in qid_results_map.values()]
+        ee_d_vals = [v["EE"]["disparity"] for v in qid_results_map.values()]
+        ee_r_vals = [v["EE"]["relevance"] for v in qid_results_map.values()]
         eu_vals = [v["EU"][metric_name] for v in qid_results_map.values()]
         
-        ee_mean = float(np.mean(ee_diffs))
-        ee_std = float(np.std(ee_diffs))
+        ee_d_mean = float(np.mean(ee_d_vals))
+        ee_d_std = float(np.std(ee_d_vals))
+        ee_r_mean = float(np.mean(ee_r_vals))
+        ee_r_std = float(np.std(ee_r_vals))
         eu_mean = float(np.mean(eu_vals))
         eu_std = float(np.std(eu_vals))
         
-        print(f"Summary - EE Difference: mean={ee_mean:.4f}, std={ee_std:.4f}", flush=True)
+        print(f"Summary - EE-D (Disparity): mean={ee_d_mean:.4f}, std={ee_d_std:.4f}", flush=True)
+        print(f"Summary - EE-R (Relevance): mean={ee_r_mean:.4f}, std={ee_r_std:.4f}", flush=True)
         print(f"Summary - Expected Utility: mean={eu_mean:.4f}, std={eu_std:.4f}", flush=True)
         
-        logger.info(f"EE Difference - Mean: {ee_mean:.6f}, Std: {ee_std:.6f}")
+        logger.info(f"EE-D (Disparity) - Mean: {ee_d_mean:.6f}, Std: {ee_d_std:.6f}")
+        logger.info(f"EE-R (Relevance) - Mean: {ee_r_mean:.6f}, Std: {ee_r_std:.6f}")
         logger.info(f"Expected Utility - Mean: {eu_mean:.6f}, Std: {eu_std:.6f}")
     
     logger.info(f"{'='*60}")
