@@ -81,6 +81,11 @@ def main(args):
                 f"alpha_{alpha}.json",
             )
         )
+    all_alpha_model_results: list[dict] = []
+    for fp in ALL_ALPHAS_MODEL_RESULTS_FP:
+        with open(fp, "r") as f:
+            all_alpha_model_results.append(json.load(f))
+        f.close()
 
     # save path of normalized EU
     SAVE_FP = os.path.join(
@@ -94,45 +99,62 @@ def main(args):
 
     utility_metric = lamp_utility_metric(LAMP_NUM)
     save_dict = copy.deepcopy(model_results_dict)
-    for qid in gold_results_dict:
+    missing_in_gold = 0
+    missing_in_some_alpha = 0
+
+    # iterate over qids in the current model run file to avoid key mismatch
+    for qid in model_results_dict:
         # Getting max utility
         if not LAMP_NUM == 3:
-            gold_max_utility = gold_results_dict[qid]["max-utility"]
+            model_eu: float = model_results_dict[qid]["EU"][utility_metric]
+
+            # fallback baseline from current alpha's own best sample
+            model_max_utility = model_results_dict[qid]["max-utility"]
+
+            if qid in gold_results_dict:
+                gold_max_utility = gold_results_dict[qid]["max-utility"]
+            else:
+                gold_max_utility = model_max_utility
+                missing_in_gold += 1
+
             # get model's max utility across all alphas
-            model_max_utility = -1.0
-            for fp in ALL_ALPHAS_MODEL_RESULTS_FP:
-                with open(fp, "r") as f:
-                    single_alpha_model_results_dict: dict = json.load(f)
-                f.close()
-                candidate_max_utility = single_alpha_model_results_dict[qid][
-                    "max-utility"
-                ]
+            for single_alpha_model_results_dict in all_alpha_model_results:
+                if qid not in single_alpha_model_results_dict:
+                    missing_in_some_alpha += 1
+                    continue
+                candidate_max_utility = single_alpha_model_results_dict[qid]["max-utility"]
                 if candidate_max_utility > model_max_utility:
                     model_max_utility = candidate_max_utility
-
-            model_eu: float = model_results_dict[qid]["EU"][utility_metric]
         else:
+            model_eu: float = model_results_dict[qid]["EU"][utility_metric]
+            model_eu = convert_to_higher_the_better(model_eu, upper_bound=4)
+
             # 'lower the better' metric should be converted to 'higher the better' metric
-            gold_max_utility = convert_to_higher_the_better(
-                gold_results_dict[qid]["min-utility"], upper_bound=4
-            )
+            # fallback baseline from current alpha's own minimum error
+            model_min_error = model_results_dict[qid]["min-utility"]
+
+            if qid in gold_results_dict:
+                gold_max_utility = convert_to_higher_the_better(
+                    gold_results_dict[qid]["min-utility"], upper_bound=4
+                )
+            else:
+                gold_max_utility = convert_to_higher_the_better(
+                    model_min_error, upper_bound=4
+                )
+                missing_in_gold += 1
+
             # get model's min error across all alphas
-            model_min_error = 1000.0
-            for fp in ALL_ALPHAS_MODEL_RESULTS_FP:
-                with open(fp, "r") as f:
-                    single_alpha_model_results_dict: dict = json.load(f)
-                f.close()
-                candidate_min_error = single_alpha_model_results_dict[qid][
-                    "min-utility"
-                ]
+            for single_alpha_model_results_dict in all_alpha_model_results:
+                if qid not in single_alpha_model_results_dict:
+                    missing_in_some_alpha += 1
+                    continue
+                candidate_min_error = single_alpha_model_results_dict[qid]["min-utility"]
                 if candidate_min_error < model_min_error:
                     model_min_error = candidate_min_error
 
             model_max_utility = convert_to_higher_the_better(
                 model_min_error, upper_bound=4
             )
-            model_eu: float = model_results_dict[qid]["EU"][utility_metric]
-            model_eu = convert_to_higher_the_better(model_eu, upper_bound=4)
 
         # Normalizing model's EU
         max_utility = max(gold_max_utility, model_max_utility)
@@ -148,6 +170,12 @@ def main(args):
     with open(SAVE_FP, "w") as f:
         json.dump(save_dict, f, indent=2)
     f.close()
+
+    if missing_in_gold > 0 or missing_in_some_alpha > 0:
+        print(
+            "Warning: normalization used fallback due to partial qid overlap "
+            f"(missing_in_gold={missing_in_gold}, missing_in_some_alpha={missing_in_some_alpha})."
+        )
 
 
 if __name__ == "__main__":

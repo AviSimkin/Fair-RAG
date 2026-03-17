@@ -6,6 +6,8 @@ sys.path.append(os.path.dirname(CUR_DIR_PATH))
 
 import torch
 
+_DEVICE = 0 if torch.cuda.is_available() else -1
+
 # https://python.langchain.com/v0.1/docs/integrations/llms/huggingface_pipelines/
 from langchain_community.llms.huggingface_pipeline import HuggingFacePipeline
 from langchain.prompts import PromptTemplate
@@ -46,11 +48,12 @@ class PromptLM:
             raise NotImplementedError
 
     def _initialize_pipeline(self) -> HuggingFacePipeline:
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         return HuggingFacePipeline.from_model_id(
             model_id=models_info[self.model_name]["model_id"],
             task=models_info[self.model_name]["hf_pipeline_task"],
-            device=0,
+            device=_DEVICE,
             model_kwargs=self.model_kwargs,
             pipeline_kwargs=self.pipeline_kwargs,
         )

@@ -25,6 +25,7 @@ import os
 import argparse
 import numpy as np
 import json
+import re
 from transformers import AutoTokenizer
 
 from utils import (
@@ -63,6 +64,78 @@ ee_eval_params = {
 }
 
 
+def _tokenize_for_mmr(text: str) -> set[str]:
+    return set(re.findall(r"\w+", text.lower()))
+
+
+def _profile_to_text(profile: dict) -> str:
+    text_parts: list[str] = []
+    for k, v in profile.items():
+        if k == "id":
+            continue
+        if isinstance(v, str):
+            text_parts.append(v)
+    return " ".join(text_parts)
+
+
+def _jaccard_similarity(a: set[str], b: set[str]) -> float:
+    if not a and not b:
+        return 0.0
+    return len(a.intersection(b)) / len(a.union(b))
+
+
+def rerank_with_mmr(
+    retrieval_results_qid: list[list],
+    query_text: str,
+    profile_lookup: dict[str, dict],
+    mmr_lambda: float,
+) -> list[list]:
+    """Re-rank candidates with MMR using query relevance + lexical diversity."""
+    if not retrieval_results_qid:
+        return retrieval_results_qid
+
+    mmr_lambda = min(1.0, max(0.0, mmr_lambda))
+    pids = [pid_score[0] for pid_score in retrieval_results_qid]
+    scores = np.array([float(pid_score[1]) for pid_score in retrieval_results_qid])
+
+    s_min = scores.min()
+    s_max = scores.max()
+    if s_max > s_min:
+        rel_scores = (scores - s_min) / (s_max - s_min)
+    else:
+        rel_scores = np.ones_like(scores)
+
+    query_tokens = _tokenize_for_mmr(query_text)
+    doc_tokens: list[set[str]] = []
+    for pid in pids:
+        profile = profile_lookup.get(pid, {})
+        doc_tokens.append(_tokenize_for_mmr(_profile_to_text(profile)))
+
+    selected: list[int] = []
+    remaining = set(range(len(pids)))
+    while remaining:
+        best_idx = None
+        best_score = None
+        for idx in remaining:
+            relevance = float(rel_scores[idx])
+            if not selected:
+                diversity_penalty = 0.0
+            else:
+                diversity_penalty = max(
+                    _jaccard_similarity(doc_tokens[idx], doc_tokens[sel_idx])
+                    for sel_idx in selected
+                )
+            mmr_score = mmr_lambda * relevance - (1.0 - mmr_lambda) * diversity_penalty
+            if best_score is None or mmr_score > best_score:
+                best_score = mmr_score
+                best_idx = idx
+
+        selected.append(best_idx)
+        remaining.remove(best_idx)
+
+    return [retrieval_results_qid[i] for i in selected]
+
+
 def get_labels(lamp_num):
     if lamp_num == 1:
         return ["[1]", "[2]"]
@@ -97,10 +170,22 @@ def main(args):
     TOKENIZER = AutoTokenizer.from_pretrained(models_info[GENERATOR_NAME]["model_id"])
     TOKENIZER_MAX_LEN = TOKENIZER.model_max_length
     RETRIEVER_NAME = args.retriever_name  # deterministic retriever
+    is_mmr_retriever = RETRIEVER_NAME == "mmr"
+    base_retriever_name = args.mmr_base_retriever if is_mmr_retriever else RETRIEVER_NAME
     DATASET = args.dataset
     ALPHA: int = args.alpha
+    output_suffix = args.output_suffix.strip()
+    if output_suffix and not output_suffix.startswith("_"):
+        output_suffix = f"_{output_suffix}"
     K: int = args.k
     N_SAMPLES: int = args.n_samples
+    force_deterministic = args.deterministic_ranking or is_mmr_retriever
+    effective_n_samples = 1 if force_deterministic else N_SAMPLES
+    if force_deterministic and N_SAMPLES != 1:
+        print(
+            f"[deterministic] forcing effective n_samples=1 (received n_samples={N_SAMPLES})",
+            flush=True,
+        )
     REL_MAPPING_FP = os.path.join(
         CUR_DIR_PATH,
         "data",
@@ -115,14 +200,17 @@ def main(args):
         RETRIEVER_NAME,
     )
     os.makedirs(EXP_RESULTS_DIR_PATH, exist_ok=True)
-    EXP_RESULTS_FP = os.path.join(EXP_RESULTS_DIR_PATH, f"alpha_{ALPHA}.json")
+    EXP_RESULTS_FP = os.path.join(
+        EXP_RESULTS_DIR_PATH,
+        f"alpha_{ALPHA}{output_suffix}.json",
+    )
     del EXP_RESULTS_DIR_PATH
     RETRIEVAL_RESULTS_FP = os.path.join(
         CUR_DIR_PATH,
         "retrieval",
         "retrieval_results",
         GENERATOR_NAME,
-        RETRIEVER_NAME,
+        base_retriever_name,
         f"{LAMP_NUM}.json",
     )
     with open(RETRIEVAL_RESULTS_FP, "r") as f:
@@ -163,18 +251,36 @@ def main(args):
     # }
     qid_results_map = dict()
     # Iterate over qids
+    max_queries = args.max_queries  # None means run all
+    query_count = 0
+    _run_ee_d = 0.0
+    _run_ee_r = 0.0
+    _run_eu = 0.0
+    _total_label = str(max_queries) if max_queries is not None else "all"
     for input_entry, output_entry in zip(inputs_file_iterator, outputs_file_iterator):
+        if max_queries is not None and query_count >= max_queries:
+            break
+        query_count += 1
         assert input_entry["id"] == output_entry["id"]
         qid: str = input_entry["id"]
-        print(f"qid: {qid}", flush=True)
         entry_question: str = input_entry["input"]
         entry_target: str = output_entry["output"]  # gold label
         qid_results_map.update(
             {qid: {"EE": {}, "EU": {}, "max-utility": None, "min-utility": None}}
         )
 
-        k = len(retrieval_results[qid]) if K == -1 else K
-        scores = [pid_score_pair[1] for pid_score_pair in retrieval_results[qid]]
+        retrieval_results_qid = retrieval_results[qid]
+        if is_mmr_retriever:
+            profile_lookup = {x["id"]: x for x in input_entry["profile"]}
+            retrieval_results_qid = rerank_with_mmr(
+                retrieval_results_qid,
+                query_text=entry_question,
+                profile_lookup=profile_lookup,
+                mmr_lambda=args.mmr_lambda,
+            )
+
+        k = len(retrieval_results_qid) if K == -1 else K
+        scores = [pid_score_pair[1] for pid_score_pair in retrieval_results_qid]
         scores = np.array(scores)
         min_value = scores.min()
         max_value = scores.max()
@@ -194,18 +300,23 @@ def main(args):
         # Apply ALPHA as a temperature parameter
         scores = scores**ALPHA
 
-        ## Perform PL sampling
-        pl_result = pl.gumbel_sample_rankings(
-            scores, N_SAMPLES, cutoff=k, doc_prob=False
-        )
-        sampled_rankings = pl_result[0]
+        ## Perform ranking generation
+        if force_deterministic:
+            # Deterministic baseline: always use the same top-k ranking.
+            deterministic_ranking = np.argsort(-scores, kind="mergesort")[:k]
+            sampled_rankings = deterministic_ranking.reshape(1, -1)
+        else:
+            pl_result = pl.gumbel_sample_rankings(
+                scores, effective_n_samples, cutoff=k, doc_prob=False
+            )
+            sampled_rankings = pl_result[0]
 
         ## Compute Expected Exposure
         # make trec_top_file and trec_rel_file
         trec_top_file_fp = make_trec_top_file_for_single_qid(
             qid=qid,
             rankings=sampled_rankings,
-            retrieval_results=retrieval_results[qid],
+            retrieval_results=retrieval_results_qid,
             run_id="main_exp",
         )
         trec_rel_file_fp = make_trec_rel_file_for_single_qid(
@@ -217,7 +328,6 @@ def main(args):
         # returns {'disparity': float, 'relevance': float, 'difference': float}
         ee_results: dict = expeval.run(parameters=ee_eval_params, k=k)
         qid_results_map[qid]["EE"] = ee_results  # update qid_results_map's EE
-        print(f"{qid}: EE: {ee_results}", flush=True)
         if args.remove_temp_files:
             os.remove(trec_top_file_fp)
             os.remove(trec_rel_file_fp)
@@ -226,11 +336,11 @@ def main(args):
         # In this experiement, the LLM is deterministic, so we can cache results.
         ranking_pred_map = dict()
         preds: list[str] = []
-        targets: list[str] = [entry_target for _ in range(N_SAMPLES)]
+        targets: list[str] = [entry_target for _ in range(effective_n_samples)]
         for ranking in sampled_rankings:
             # ranking is a list of indices of original ranking from deterministic ranker
             if str(ranking) not in ranking_pred_map:
-                top_profiles: list[list] = [retrieval_results[qid][i] for i in ranking]
+                top_profiles: list[list] = [retrieval_results_qid[i] for i in ranking]
                 pids: list = [x[0] for x in top_profiles]
                 selected_profiles: list[dict] = lamp_handler.find_profiles_by_pids(
                     LAMP_NUM, qid, pids
@@ -251,12 +361,11 @@ def main(args):
                 ranking_pred_map.update({str(ranking): pred})
             else:
                 pred = ranking_pred_map[str(ranking)]
-            print(f"ranking: {str(ranking)}; pred: {pred}", flush=True)
             preds.append(pred)
 
         # Evaluation of N_SAMPLE pred-target pairs and get one EU
         try:
-            assert N_SAMPLES == len(preds) == len(targets)
+            assert effective_n_samples == len(preds) == len(targets)
         except:
             logger.error(f"Evaluation length mismatch: skipping qid: {qid}", flush=True)
         metric_scores: list = metric_fn(preds, targets)
@@ -264,7 +373,28 @@ def main(args):
         qid_results_map[qid]["EU"] = {metric_name: expected_utility}
         qid_results_map[qid]["max-utility"] = max(metric_scores)
         qid_results_map[qid]["min-utility"] = min(metric_scores)
-        print(f"results:\n {qid_results_map[qid]}\n\n", flush=True)
+
+        # Update running averages and print progress every 10 queries
+        _run_ee_d += ee_results.get("disparity", 0.0)
+        _run_ee_r += ee_results.get("relevance", 0.0)
+        _run_eu += expected_utility
+        if query_count % 10 == 0:
+            print(
+                f"[{query_count}/{_total_label}] "
+                f"avg EE-D: {_run_ee_d / query_count:.4f} | "
+                f"avg EE-R: {_run_ee_r / query_count:.4f} | "
+                f"avg EU ({metric_name}): {_run_eu / query_count:.4f}",
+                flush=True,
+            )
+
+    if query_count % 10 != 0:
+        print(
+            f"[{query_count}/{_total_label}] FINAL "
+            f"avg EE-D: {_run_ee_d / query_count:.4f} | "
+            f"avg EE-R: {_run_ee_r / query_count:.4f} | "
+            f"avg EU ({metric_name}): {_run_eu / query_count:.4f}",
+            flush=True,
+        )
 
     # Write experiment results for the LAMP_NUM
     with open(EXP_RESULTS_FP, "w") as f:
@@ -340,6 +470,44 @@ if __name__ == "__main__":
         "--multi_gpus",
         action="store_true",
         help="Use multiple GPUs for distributed inference",
+    )
+    parser.add_argument(
+        "--max_queries",
+        type=int,
+        default=None,
+        help="Limit number of queries (useful for quick testing). None means all.",
+    )
+    parser.add_argument(
+        "--deterministic_ranking",
+        action="store_true",
+        help=(
+            "Use deterministic top-k ranking from retriever scores (no Gumbel sampling). "
+            "Useful for deterministic baseline runs."
+        ),
+    )
+    parser.add_argument(
+        "--output_suffix",
+        type=str,
+        default="",
+        help=(
+            "Optional suffix added to result filename. "
+            "For example, alpha_1_deterministic.json"
+        ),
+    )
+    parser.add_argument(
+        "--mmr_base_retriever",
+        type=str,
+        default="bm25",
+        help=(
+            "Base retriever candidate list used by MMR mode. "
+            "Only used when --retriever_name mmr"
+        ),
+    )
+    parser.add_argument(
+        "--mmr_lambda",
+        type=float,
+        default=0.7,
+        help="MMR lambda in [0,1]. Higher favors relevance, lower favors diversity.",
     )
     args = parser.parse_args()
 
