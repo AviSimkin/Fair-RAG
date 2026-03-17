@@ -1,13 +1,16 @@
 """
-Normalization of EU is done to get the percentage of closeness to the approximated optimal utility.
-I.e, the normalized EU value indicates how close the EU is to the max utility.
-Per query, max utility can be approximated by \max(max-utility of current model, max-utility of gold+currentGenerator)
-Then, the Normalized EU can be obtained by EU divided by its max utility
+Post-process normalization for Fair-RAG metrics.
 
-For 'lower the better' metrics (e.g. MAE), we convert the values by (utility_upper_bound - EU).
-This is because, without the conversion, the optimal utility is the minimum utility value which makes the inconsistency in max-normalization.
-The conversion changes the value to 'higher the better' metric, allowing us to perform the same normalization operation as above.
-The conversion is done the same when getting the max utility.
+This script normalizes EU (Expected Utility) only, after all required experiments are completed.
+EE-D, EE-R, and EE-L are already normalized during experiment runs using theoretical bounds
+from the expected_exposure library and should NOT be re-normalized here.
+
+Required inputs for a given (generator, lamp, retriever):
+- experiment_results/<generator>/lamp<lamp>/<retriever>/alpha_<a>.json for all alphas
+- experiment_results/<generator>/lamp<lamp>/gold/alpha_8.json
+
+Outputs:
+- experiment_results/<generator>/lamp<lamp>/<retriever>/alpha_<a>_normalized.json
 """
 
 import os
@@ -17,210 +20,219 @@ import json
 import copy
 import logging
 from datetime import datetime
-from datetime import datetime
 
 
 CUR_DIR_PATH = os.path.dirname(os.path.realpath(__file__))
 logger = logging.getLogger()
 
 
-def lamp_utility_metric(lamp_num) -> str:
+def lamp_utility_metric(lamp_num: int) -> str:
     if lamp_num in {1, 2}:
-        metric = "acc"
-    elif lamp_num in {3}:
-        metric = "mae"
-    else:
-        metric = "rouge-l"
-    return metric
+        return "acc"
+    if lamp_num in {3}:
+        return "mae"
+    return "rouge-l"
 
 
-def convert_to_higher_the_better(value, upper_bound):
+def convert_to_higher_the_better(value: float, upper_bound: float) -> float:
     return upper_bound - value
 
 
+def normalize_minmax(value: float, lower: float, upper: float, default: float = 1.0) -> float:
+    if upper == lower:
+        return default
+    return (value - lower) / (upper - lower)
+
+
+def load_json(fp: str) -> dict:
+    with open(fp, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def parse_alphas(alpha_str: str) -> list[int]:
+    alphas = []
+    for x in alpha_str.split(","):
+        x = x.strip()
+        if not x:
+            continue
+        alphas.append(int(x))
+    if not alphas:
+        raise ValueError("No valid alpha values were provided.")
+    return sorted(set(alphas))
+
+
 def main(args):
-    LAMP_NUM: int = args.lamp_num
-    GENERATOR_NAME = args.generator_name
-    RETRIEVER_NAME = args.retriever_name  # deterministic retriever
-    ALPHA: int = args.alpha  # for current alpha's result to normalize
-    RUN_ID: str = args.run_id
-    ALPHAS: list = [1, 2, 4, 8]  # to search for the max utility across all alphas
-    # access to gold model's experiment results
-    GOLD_RESULTS_FP = os.path.join(
+    lamp_num: int = args.lamp_num
+    generator_name: str = args.generator_name
+    retriever_name: str = args.retriever_name
+    run_id: str = args.run_id
+    all_alphas: list[int] = parse_alphas(args.alphas)
+    target_alphas: list[int] = [args.alpha] if args.alpha is not None else all_alphas
+
+    if args.alpha is not None and args.alpha not in all_alphas:
+        raise ValueError(f"Requested --alpha {args.alpha} is not included in --alphas {all_alphas}")
+
+    base_model_dir = os.path.join(
         CUR_DIR_PATH,
         "experiment_results",
-        GENERATOR_NAME,
-        f"lamp{LAMP_NUM}",
+        generator_name,
+        f"lamp{lamp_num}",
+        retriever_name,
+    )
+
+    gold_results_fp = os.path.join(
+        CUR_DIR_PATH,
+        "experiment_results",
+        generator_name,
+        f"lamp{lamp_num}",
         "gold",
-        # safe to say gold retriever is when alpha is 8 (put all relevant docs above non-relevant)
         "alpha_8.json",
     )
-    with open(GOLD_RESULTS_FP, "r") as f:
-        gold_results_dict: dict = json.load(f)
-    f.close()
-    del GOLD_RESULTS_FP
-    # access to current model's experiment results
-    MODEL_RESULTS_FP = os.path.join(
-        CUR_DIR_PATH,
-        "experiment_results",
-        GENERATOR_NAME,
-        f"lamp{LAMP_NUM}",
-        RETRIEVER_NAME,
-        f"alpha_{ALPHA}.json",
-    )
-    with open(MODEL_RESULTS_FP, "r") as f:
-        model_results_dict: dict = json.load(f)
-    f.close()
-    del MODEL_RESULTS_FP
 
-    # access to all alphas experiment results
-    ALL_ALPHAS_MODEL_RESULTS_FP: list[str] = []
-    for alpha in ALPHAS:
-        ALL_ALPHAS_MODEL_RESULTS_FP.append(
-            os.path.join(
-                CUR_DIR_PATH,
-                "experiment_results",
-                GENERATOR_NAME,
-                f"lamp{LAMP_NUM}",
-                RETRIEVER_NAME,
-                f"alpha_{alpha}.json",
-            )
+    model_results_fps: dict[int, str] = {
+        alpha: os.path.join(base_model_dir, f"alpha_{alpha}.json") for alpha in all_alphas
+    }
+
+    missing_files = []
+    if not os.path.exists(gold_results_fp):
+        missing_files.append(gold_results_fp)
+    for _, fp in model_results_fps.items():
+        if not os.path.exists(fp):
+            missing_files.append(fp)
+
+    if missing_files:
+        missing_msg = "\n".join(missing_files)
+        raise FileNotFoundError(
+            "Cannot normalize metrics yet. Missing required experiment outputs:\n"
+            f"{missing_msg}\n"
+            "Run all deterministic-alpha experiments and the gold run first."
         )
 
-    # save path of normalized EU
-    SAVE_FP = os.path.join(
-        CUR_DIR_PATH,
-        "experiment_results",
-        GENERATOR_NAME,
-        f"lamp{LAMP_NUM}",
-        RETRIEVER_NAME,
-        f"alpha_{ALPHA}_normalized.json",
-    )
-    
-    # Build log file name with run_id to avoid overwriting
-    if RUN_ID:
-        log_suffix = f"alpha_{ALPHA}_normalize_{RUN_ID}.log"
+    # Build log file name with run_id to avoid overwriting.
+    if run_id:
+        log_suffix = f"normalize_all_{run_id}.log"
     else:
-        log_suffix = f"alpha_{ALPHA}_normalize.log"
-    
-    # Set up logging (save to both locations: experiment_results and logs/)
-    log_file = os.path.join(
-        CUR_DIR_PATH,
-        "experiment_results",
-        GENERATOR_NAME,
-        f"lamp{LAMP_NUM}",
-        RETRIEVER_NAME,
-        log_suffix,
+        log_suffix = "normalize_all.log"
+
+    log_file = os.path.join(base_model_dir, log_suffix)
+
+    logs_dir = os.path.join(
+        CUR_DIR_PATH, "logs", generator_name, f"lamp{lamp_num}", retriever_name
     )
-    
-    # Also create log in tracked logs/ directory
-    logs_dir = os.path.join(CUR_DIR_PATH, "logs", GENERATOR_NAME, f"lamp{LAMP_NUM}", RETRIEVER_NAME)
     os.makedirs(logs_dir, exist_ok=True)
     tracked_log_file = os.path.join(logs_dir, log_suffix)
-    
+
     logger.handlers.clear()
     logger.setLevel(logging.INFO)
-    
-    # Add handlers for both locations
+
     for log_path in [log_file, tracked_log_file]:
-        fh = logging.FileHandler(log_path, mode='w')
+        fh = logging.FileHandler(log_path, mode="w")
         fh.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(asctime)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+        formatter = logging.Formatter("%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
         fh.setFormatter(formatter)
-        fh.flush()  # Ensure handler flushes
         logger.addHandler(fh)
-    
+
     logger.info(f"{'='*60}")
-    logger.info(f"EU Normalization Configuration")
+    logger.info("Post-run Metric Normalization Configuration")
     logger.info(f"{'='*60}")
-    logger.info(f"LaMP Number: {LAMP_NUM}")
-    logger.info(f"Generator: {GENERATOR_NAME}")
-    logger.info(f"Retriever: {RETRIEVER_NAME}")
-    logger.info(f"Alpha: {ALPHA}")
+    logger.info(f"LaMP Number: {lamp_num}")
+    logger.info(f"Generator: {generator_name}")
+    logger.info(f"Retriever: {retriever_name}")
+    logger.info(f"All Alphas (required inputs): {all_alphas}")
+    logger.info(f"Target Alphas (outputs): {target_alphas}")
     logger.info(f"{'='*60}\n")
 
-    utility_metric = lamp_utility_metric(LAMP_NUM)
-    save_dict = copy.deepcopy(model_results_dict)
-    for qid in gold_results_dict:
-        # Getting max utility
-        if not LAMP_NUM == 3:
-            gold_max_utility = gold_results_dict[qid]["max-utility"]
-            # get model's max utility across all alphas
-            model_max_utility = -1.0
-            for fp in ALL_ALPHAS_MODEL_RESULTS_FP:
-                with open(fp, "r") as f:
-                    single_alpha_model_results_dict: dict = json.load(f)
-                f.close()
-                candidate_max_utility = single_alpha_model_results_dict[qid][
-                    "max-utility"
-                ]
-                if candidate_max_utility > model_max_utility:
-                    model_max_utility = candidate_max_utility
+    utility_metric = lamp_utility_metric(lamp_num)
 
-            model_eu: float = model_results_dict[qid]["EU"][utility_metric]
+    gold_results_dict = load_json(gold_results_fp)
+    model_results_by_alpha: dict[int, dict] = {
+        alpha: load_json(fp) for alpha, fp in model_results_fps.items()
+    }
+
+    gold_qids = set(gold_results_dict.keys())
+    for alpha, results in model_results_by_alpha.items():
+        qids = set(results.keys())
+        if qids != gold_qids:
+            raise ValueError(
+                f"QID mismatch for alpha={alpha}. Expected {len(gold_qids)} qids "
+                f"(matching gold), got {len(qids)}."
+            )
+
+    # Prepare per-alpha copies to write normalized outputs.
+    save_dicts: dict[int, dict] = {
+        alpha: copy.deepcopy(model_results_by_alpha[alpha]) for alpha in target_alphas
+    }
+
+    for qid in gold_results_dict:
+        # EE metrics are already normalized by expected_exposure library using theoretical bounds.
+        # We only need to normalize EU here.
+        
+        # EU denominator uses oracle + best model utility across all alphas.
+        if lamp_num != 3:
+            gold_max_utility = gold_results_dict[qid]["max-utility"]
+            model_max_utility = max(
+                model_results_by_alpha[a][qid]["max-utility"] for a in all_alphas
+            )
         else:
-            # 'lower the better' metric should be converted to 'higher the better' metric
             gold_max_utility = convert_to_higher_the_better(
                 gold_results_dict[qid]["min-utility"], upper_bound=4
             )
-            # get model's min error across all alphas
-            model_min_error = 1000.0
-            for fp in ALL_ALPHAS_MODEL_RESULTS_FP:
-                with open(fp, "r") as f:
-                    single_alpha_model_results_dict: dict = json.load(f)
-                f.close()
-                candidate_min_error = single_alpha_model_results_dict[qid][
-                    "min-utility"
-                ]
-                if candidate_min_error < model_min_error:
-                    model_min_error = candidate_min_error
-
-            model_max_utility = convert_to_higher_the_better(
-                model_min_error, upper_bound=4
+            model_min_error = min(
+                model_results_by_alpha[a][qid]["min-utility"] for a in all_alphas
             )
-            model_eu: float = model_results_dict[qid]["EU"][utility_metric]
-            model_eu = convert_to_higher_the_better(model_eu, upper_bound=4)
+            model_max_utility = convert_to_higher_the_better(model_min_error, upper_bound=4)
 
-        # Normalizing model's EU
         max_utility = max(gold_max_utility, model_max_utility)
-        try:
-            normalized_eu: float = model_eu / max_utility
-        except ZeroDivisionError:
-            normalized_eu = 1.0
 
-        # save the normalized EU
-        save_dict[qid]["EU"][utility_metric] = normalized_eu
+        for alpha in target_alphas:
+            model_entry = save_dicts[alpha][qid]
 
-    # Log summary statistics before saving
-    logger.info(f"\nNormalization Results Summary")
-    logger.info(f"{'='*60}")
-    normalized_eu_vals = [save_dict[qid]["EU"][utility_metric] for qid in save_dict]
-    logger.info(f"Total queries normalized: {len(normalized_eu_vals)}")
-    logger.info(f"Normalized EU - Mean: {float(np.mean(normalized_eu_vals)):.6f}, Std: {float(np.std(normalized_eu_vals)):.6f}")
-    logger.info(f"Normalized EU - Min: {float(np.min(normalized_eu_vals)):.6f}, Max: {float(np.max(normalized_eu_vals)):.6f}")
-    logger.info(f"{'='*60}")
-    
-    # Flush before saving results
-    for handler in logger.handlers:
-        handler.flush()
-    
-    # Save the normalized results file
-    with open(SAVE_FP, "w") as f:
-        json.dump(save_dict, f, indent=2)
-    f.close()
-    
-    logger.info(f"Results saved to: {SAVE_FP}")
-    logger.info(f"Tracked log saved to: {tracked_log_file} (committed to git)")
+            # EE metrics are already normalized - just copy them
+            model_entry["EE"]["disparity"] = model_results_by_alpha[alpha][qid]["EE"]["disparity"]
+            model_entry["EE"]["relevance"] = model_results_by_alpha[alpha][qid]["EE"]["relevance"]
+            model_entry["EE"]["difference"] = model_results_by_alpha[alpha][qid]["EE"]["difference"]
+
+            # Normalize EU
+            model_eu = model_results_by_alpha[alpha][qid]["EU"][utility_metric]
+            if lamp_num == 3:
+                model_eu = convert_to_higher_the_better(model_eu, upper_bound=4)
+
+            if max_utility == 0:
+                normalized_eu = 1.0
+            else:
+                normalized_eu = model_eu / max_utility
+
+            model_entry["EU"][utility_metric] = normalized_eu
+
+    for alpha in target_alphas:
+        save_fp = os.path.join(base_model_dir, f"alpha_{alpha}_normalized.json")
+        with open(save_fp, "w", encoding="utf-8") as f:
+            json.dump(save_dicts[alpha], f, indent=2)
+
+        normalized_ee_d = [save_dicts[alpha][qid]["EE"]["disparity"] for qid in save_dicts[alpha]]
+        normalized_ee_r = [save_dicts[alpha][qid]["EE"]["relevance"] for qid in save_dicts[alpha]]
+        normalized_eu = [save_dicts[alpha][qid]["EU"][utility_metric] for qid in save_dicts[alpha]]
+
+        logger.info(f"Alpha={alpha} | queries={len(normalized_eu)}")
+        logger.info(
+            f"  EE-D (already normalized) mean/std: {float(np.mean(normalized_ee_d)):.6f} / {float(np.std(normalized_ee_d)):.6f}"
+        )
+        logger.info(
+            f"  EE-R (already normalized) mean/std: {float(np.mean(normalized_ee_r)):.6f} / {float(np.std(normalized_ee_r)):.6f}"
+        )
+        logger.info(
+            f"  EU mean/std:   {float(np.mean(normalized_eu)):.6f} / {float(np.std(normalized_eu)):.6f}"
+        )
+        logger.info(f"  Saved: {save_fp}")
+
+    logger.info(f"\nTracked log saved to: {tracked_log_file} (committed to git)")
     logger.info(f"Normalization completed successfully at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
-    # Final flush to ensure all logs are written
+
     for handler in logger.handlers:
         handler.flush()
 
 
 if __name__ == "__main__":
-    # Example run:
-    # python normalize_eu.py --retriever_name splade --generator_name flanT5XXL --lamp_num 4 --alpha 2
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--lamp_num",
@@ -243,8 +255,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--alpha",
         type=int,
-        required=True,
-        help="Fairness control parameter in Plackett-Luce Sampling; alpha's result to normalize",
+        default=None,
+        help="Optional single alpha to write output for; if omitted, writes all --alphas.",
+    )
+    parser.add_argument(
+        "--alphas",
+        type=str,
+        default="1,2,4,8",
+        help="Comma-separated alpha values required for normalization bounds, e.g. '1,2,4,8'.",
     )
     parser.add_argument(
         "--run_id",

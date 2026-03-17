@@ -1,0 +1,19 @@
+2026-03-08 16:20:53 - ============================================================
+2026-03-08 16:20:53 - EU Normalization Configuration
+2026-03-08 16:20:53 - ============================================================
+2026-03-08 16:20:53 - LaMP Number: 4
+2026-03-08 16:20:53 - Generator: flanT5Small
+2026-03-08 16:20:53 - Retriever: bm25
+2026-03-08 16:20:53 - Alpha: 1
+2026-03-08 16:20:53 - ============================================================
+
+2026-03-08 16:20:53 - 
+Normalization Results Summary
+2026-03-08 16:20:53 - ============================================================
+2026-03-08 16:20:53 - Total queries normalized: 30
+2026-03-08 16:20:53 - Normalized EU - Mean: 0.166582, Std: 0.141871
+2026-03-08 16:20:53 - Normalized EU - Min: 0.000000, Max: 0.453904
+2026-03-08 16:20:53 - ============================================================
+2026-03-08 16:20:53 - Results saved to: /home/student/Fair-RAG/experiment_results/flanT5Small/lamp4/bm25/alpha_1_normalized.json
+2026-03-08 16:20:53 - Tracked log saved to: /home/student/Fair-RAG/logs/flanT5Small/lamp4/bm25/alpha_1_normalize_2026-03-08_15-49-29.log (committed to git)
+2026-03-08 16:20:53 - Normalization completed successfully at 2026-03-08 16:20:53

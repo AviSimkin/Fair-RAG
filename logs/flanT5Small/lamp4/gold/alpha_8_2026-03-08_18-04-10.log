@@ -1,0 +1,20 @@
+2026-03-08 18:47:11 - ============================================================
+2026-03-08 18:47:11 - Experiment Configuration
+2026-03-08 18:47:11 - ============================================================
+2026-03-08 18:47:11 - LaMP Number: 4
+2026-03-08 18:47:11 - Generator: flanT5Small
+2026-03-08 18:47:11 - Retriever: gold
+2026-03-08 18:47:11 - Alpha: 8
+2026-03-08 18:47:11 - K (top-k): 5
+2026-03-08 18:47:11 - N Samples: 8
+2026-03-08 18:47:11 - Max Queries: 60
+2026-03-08 18:47:11 - Query Batch Size: 10
+2026-03-08 18:47:13 - Metric: rouge-l
+2026-03-08 18:47:13 - ============================================================
+
+2026-03-08 18:47:13 - Limiting to 60 queries (original dataset had 833 queries)
+2026-03-08 18:49:26 - Progress: 10/60 queries completed
+2026-03-08 18:51:49 - Progress: 20/60 queries completed
+2026-03-08 18:54:02 - Progress: 30/60 queries completed
+2026-03-08 18:56:03 - Progress: 40/60 queries completed
+2026-03-08 18:58:19 - Progress: 50/60 queries completed

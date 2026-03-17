@@ -62,7 +62,7 @@ ee_eval_params = {
     "binarize": False,
     "groupEvaluation": False,
     "complete": False,
-    "normalize": True,
+    "normalize": True,  # EE metrics use theoretical bounds for normalization
     "relfn": "",  # will be dynamically filled while this script is being run
     "topfn": "",  # will be dynamically filled while this script is being run
 }
@@ -250,17 +250,17 @@ def main(args):
 
         k = len(retrieval_results[qid]) if K == -1 else K
         scores = [pid_score_pair[1] for pid_score_pair in retrieval_results[qid]]
-        scores = np.array(scores)
-        min_value = scores.min()
-        max_value = scores.max()
+        scores = np.array(scores, dtype=float)
         if RETRIEVER_NAME != "gold":
-            # ensure no negative scores (since we are going to apply ALPHA)
-            if min_value < 0:
-                # rescale the scores to have minimum value of 0
-                scores = scores - min_value
-            # Min-Max Normalization, followed by scaling to [1, 2]
-            scores = (scores - min_value) / (max_value - min_value)
-            scores = scores + 1  # rescale to [1, 2] to amplify the effect of ALPHA
+            # Min-Max normalization followed by scaling to [1, 2].
+            # If all retrieval scores are identical, keep a uniform score vector.
+            min_value = scores.min()
+            max_value = scores.max()
+            if max_value == min_value:
+                scores = np.ones_like(scores)
+            else:
+                scores = (scores - min_value) / (max_value - min_value)
+                scores = scores + 1  # rescale to [1, 2] to amplify the effect of ALPHA
         else:  # oracle retriever
             # retrieval scores for oracle retriever are in binary (either 0 or 1)
             # amplify positive label (1) to make ALPHA effect bigger and make sure we do not have EE-R less than 1 for lower ALPHA
@@ -331,7 +331,7 @@ def main(args):
         try:
             assert N_SAMPLES == len(preds) == len(targets)
         except:
-            logger.error(f"Evaluation length mismatch: skipping qid: {qid}", flush=True)
+            logger.error(f"Evaluation length mismatch: skipping qid: {qid}")
         metric_scores: list = metric_fn(preds, targets)
         expected_utility = float(sum(metric_scores) / len(metric_scores))
         qid_results_map[qid]["EU"] = {metric_name: expected_utility}

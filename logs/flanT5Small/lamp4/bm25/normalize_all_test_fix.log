@@ -1,0 +1,33 @@
+2026-03-08 18:00:11 - ============================================================
+2026-03-08 18:00:11 - Post-run Metric Normalization Configuration
+2026-03-08 18:00:11 - ============================================================
+2026-03-08 18:00:11 - LaMP Number: 4
+2026-03-08 18:00:11 - Generator: flanT5Small
+2026-03-08 18:00:11 - Retriever: bm25
+2026-03-08 18:00:11 - All Alphas (required inputs): [1, 2, 4, 8]
+2026-03-08 18:00:11 - Target Alphas (outputs): [1, 2, 4, 8]
+2026-03-08 18:00:11 - ============================================================
+
+2026-03-08 18:00:11 - Alpha=1 | queries=60
+2026-03-08 18:00:11 -   EE-D (already normalized) mean/std: 0.906250 / 0.424893
+2026-03-08 18:00:11 -   EE-R (already normalized) mean/std: 0.277794 / 0.468530
+2026-03-08 18:00:11 -   EU mean/std:   0.216877 / 0.166742
+2026-03-08 18:00:11 -   Saved: /home/student/Fair-RAG/experiment_results/flanT5Small/lamp4/bm25/alpha_1_normalized.json
+2026-03-08 18:00:11 - Alpha=2 | queries=60
+2026-03-08 18:00:11 -   EE-D (already normalized) mean/std: 1.080208 / 0.523857
+2026-03-08 18:00:11 -   EE-R (already normalized) mean/std: 0.268441 / 0.440834
+2026-03-08 18:00:11 -   EU mean/std:   0.229721 / 0.146157
+2026-03-08 18:00:11 -   Saved: /home/student/Fair-RAG/experiment_results/flanT5Small/lamp4/bm25/alpha_2_normalized.json
+2026-03-08 18:00:11 - Alpha=4 | queries=60
+2026-03-08 18:00:11 -   EE-D (already normalized) mean/std: 3.599479 / 0.691360
+2026-03-08 18:00:11 -   EE-R (already normalized) mean/std: 0.273590 / 0.438943
+2026-03-08 18:00:11 -   EU mean/std:   0.257217 / 0.244907
+2026-03-08 18:00:11 -   Saved: /home/student/Fair-RAG/experiment_results/flanT5Small/lamp4/bm25/alpha_4_normalized.json
+2026-03-08 18:00:11 - Alpha=8 | queries=60
+2026-03-08 18:00:11 -   EE-D (already normalized) mean/std: 4.822917 / 0.276503
+2026-03-08 18:00:11 -   EE-R (already normalized) mean/std: 0.260953 / 0.440828
+2026-03-08 18:00:11 -   EU mean/std:   0.266601 / 0.298582
+2026-03-08 18:00:11 -   Saved: /home/student/Fair-RAG/experiment_results/flanT5Small/lamp4/bm25/alpha_8_normalized.json
+2026-03-08 18:00:11 - 
+Tracked log saved to: /home/student/Fair-RAG/logs/flanT5Small/lamp4/bm25/normalize_all_test_fix.log (committed to git)
+2026-03-08 18:00:11 - Normalization completed successfully at 2026-03-08 18:00:11
