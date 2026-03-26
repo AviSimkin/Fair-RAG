@@ -34,12 +34,21 @@ def convert_to_higher_the_better(value, upper_bound):
     return upper_bound - value
 
 
+def parse_alphas(alpha_values: str | None) -> list[int]:
+    if not alpha_values:
+        return [1, 2, 4, 8]
+    return [int(value.strip()) for value in alpha_values.split(",") if value.strip()]
+
+
 def main(args):
     LAMP_NUM: int = args.lamp_num
     GENERATOR_NAME = args.generator_name
     RETRIEVER_NAME = args.retriever_name  # deterministic retriever
     ALPHA: int = args.alpha  # for current alpha's result to normalize
-    ALPHAS: list = [1, 2, 4, 8]  # to search for the max utility across all alphas
+    ALPHAS: list[int] = parse_alphas(args.all_alphas)
+    INPUT_SUFFIX: str = args.input_suffix or ""
+    if INPUT_SUFFIX and not INPUT_SUFFIX.startswith("_"):
+        INPUT_SUFFIX = f"_{INPUT_SUFFIX}"
     # access to gold model's experiment results
     GOLD_RESULTS_FP = os.path.join(
         CUR_DIR_PATH,
@@ -61,7 +70,7 @@ def main(args):
         GENERATOR_NAME,
         f"lamp{LAMP_NUM}",
         RETRIEVER_NAME,
-        f"alpha_{ALPHA}.json",
+        f"alpha_{ALPHA}{INPUT_SUFFIX}.json",
     )
     with open(MODEL_RESULTS_FP, "r") as f:
         model_results_dict: dict = json.load(f)
@@ -78,7 +87,7 @@ def main(args):
                 GENERATOR_NAME,
                 f"lamp{LAMP_NUM}",
                 RETRIEVER_NAME,
-                f"alpha_{alpha}.json",
+                f"alpha_{alpha}{INPUT_SUFFIX}.json",
             )
         )
     all_alpha_model_results: list[dict] = []
@@ -94,7 +103,7 @@ def main(args):
         GENERATOR_NAME,
         f"lamp{LAMP_NUM}",
         RETRIEVER_NAME,
-        f"alpha_{ALPHA}_normalized.json",
+        f"alpha_{ALPHA}{INPUT_SUFFIX}_normalized.json",
     )
 
     utility_metric = lamp_utility_metric(LAMP_NUM)
@@ -205,6 +214,18 @@ if __name__ == "__main__":
         type=int,
         required=True,
         help="Fairness control parameter in Plackett-Luce Sampling; alpha's result to normalize",
+    )
+    parser.add_argument(
+        "--all_alphas",
+        type=str,
+        default="1,2,4,8",
+        help="Comma-separated alpha values used to search for the max utility across runs",
+    )
+    parser.add_argument(
+        "--input_suffix",
+        type=str,
+        default="",
+        help="Optional input/output filename suffix, e.g. _mmr_deterministic",
     )
     args = parser.parse_args()
 

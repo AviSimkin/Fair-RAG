@@ -8,9 +8,12 @@ This module keeps experiment orchestration reusable across environments:
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import json
+import shutil
 import subprocess
+import sys
 from typing import Iterable
 
 import pandas as pd
@@ -31,21 +34,104 @@ class ExperimentConfig:
     skip_existing: bool = True
     mmr_base_retriever: str = "bm25"
     mmr_lambda: float = 0.7
+    run_tag: str = ""  # e.g. "balanced", "weak" — used in run-log folder names
+    print_interval: int | None = None  # stdout print every N queries; None = same as checkpoint_interval
+
+
+def find_repo_root(start: Path | None = None) -> Path:
+    """Find the repository root by walking upward from the given start path."""
+    current = (start or Path.cwd()).resolve()
+    markers = ("experiment.py", "notebook_experiment_utils.py")
+
+    for candidate in (current, *current.parents):
+        if all((candidate / marker).exists() for marker in markers):
+            return candidate
+
+    raise FileNotFoundError(
+        "Could not locate repository root from "
+        f"{current}. Expected markers: {', '.join(markers)}"
+    )
+
+
+def resolve_python_executable(root: Path) -> Path:
+    """Resolve a Python executable path that works across Linux/macOS/Windows."""
+    candidates: list[Path] = []
+
+    # Prefer the active notebook/kernel interpreter first.
+    candidates.append(Path(sys.executable).resolve())
+
+    venv_path = os.environ.get("VIRTUAL_ENV")
+    if venv_path:
+        venv_root = Path(venv_path)
+        candidates.extend(
+            [
+                venv_root / "bin" / "python",
+                venv_root / "Scripts" / "python.exe",
+            ]
+        )
+
+    candidates.extend(
+        [
+            root / ".venv" / "bin" / "python",
+            root / ".venv" / "Scripts" / "python.exe",
+        ]
+    )
+
+    for cmd in ("python3", "python"):
+        resolved = shutil.which(cmd)
+        if resolved:
+            candidates.append(Path(resolved))
+
+    seen: set[Path] = set()
+    ordered_unique: list[Path] = []
+    for candidate in candidates:
+        candidate = candidate.expanduser()
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        ordered_unique.append(candidate)
+
+    for candidate in ordered_unique:
+        if candidate.exists():
+            return candidate
+
+    looked_in = "\n".join(str(path) for path in ordered_unique)
+    raise FileNotFoundError(
+        "Could not resolve a Python executable. Checked:\n" + looked_in
+    )
 
 
 def _run_cmd(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
     print("\n> " + " ".join(args))
-    proc = subprocess.run(args, cwd=cwd, text=False, capture_output=True)
-    stdout_text = proc.stdout.decode("utf-8", errors="replace") if proc.stdout else ""
-    stderr_text = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
-    if stdout_text:
-        print(stdout_text[-3000:])
-    if proc.returncode != 0:
-        if stderr_text:
-            print("--- stderr ---")
-            print(stderr_text[-3000:])
-        raise RuntimeError(f"Command failed with exit code {proc.returncode}")
-    return proc
+    env = os.environ.copy()
+    env.setdefault("PYTHONUNBUFFERED", "1")
+
+    proc = subprocess.Popen(
+        args,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    output_lines: list[str] = []
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        output_lines.append(line)
+        print(line, end="")
+
+    return_code = proc.wait()
+    combined_output = "".join(output_lines)
+    if return_code != 0:
+        tail = combined_output[-3000:]
+        if tail:
+            print("--- command tail ---")
+            print(tail)
+        raise RuntimeError(f"Command failed with exit code {return_code}")
+
+    return subprocess.CompletedProcess(args=args, returncode=return_code, stdout=combined_output)
 
 
 def run_experiment_for_alpha(
@@ -57,8 +143,40 @@ def run_experiment_for_alpha(
 ) -> None:
     out_fp = raw_results_path(cfg, retriever_name, alpha, output_suffix=output_suffix)
     if cfg.skip_existing and out_fp.exists():
-        print(f"[skip] existing: {out_fp}")
-        return
+        # Only skip if the existing file covers at least as many queries as requested.
+        # A file from a smaller run (e.g. 30-query weak) must NOT block a 833-query balanced run.
+        _should_skip = True
+        if cfg.max_queries is not None:
+            try:
+                with out_fp.open() as _f:
+                    _existing_count = len(json.load(_f))
+                if _existing_count < cfg.max_queries:
+                    print(
+                        f"[stale] {out_fp.name} has {_existing_count} queries "
+                        f"but {cfg.max_queries} requested — rerunning"
+                    )
+                    _should_skip = False
+            except Exception:
+                _should_skip = False  # unreadable file → rerun to be safe
+        if _should_skip:
+            # Load and summarise cached results so the user can see them inline.
+            try:
+                with out_fp.open() as _f:
+                    _cached = json.load(_f)
+                _n = len(_cached)
+                _ee_d_vals = [v["EE"]["disparity"] for v in _cached.values() if "EE" in v]
+                _ee_r_vals = [v["EE"]["relevance"] for v in _cached.values() if "EE" in v]
+                _eu_vals   = [next(iter(v["EU"].values())) for v in _cached.values() if "EU" in v]
+                _mean = lambda lst: sum(lst) / len(lst) if lst else float("nan")
+                print(
+                    f"[skip] {out_fp.name}  ({_n} queries) "
+                    f"EE-D={_mean(_ee_d_vals):.4f}  "
+                    f"EE-R={_mean(_ee_r_vals):.4f}  "
+                    f"EU={_mean(_eu_vals):.4f}"
+                )
+            except Exception:
+                print(f"[skip] existing: {out_fp}")
+            return
 
     n_samples = 1 if deterministic_ranking else cfg.n_samples
 
@@ -89,6 +207,10 @@ def run_experiment_for_alpha(
         args.extend(["--max_queries", str(cfg.max_queries)])
     if cfg.remove_temp_files:
         args.append("--remove_temp_files")
+    if cfg.run_tag:
+        args.extend(["--run_tag", cfg.run_tag])
+    if cfg.print_interval is not None:
+        args.extend(["--print_interval", str(cfg.print_interval)])
     _run_cmd(args, cfg.root)
 
 
@@ -153,6 +275,56 @@ def normalize_eu_grid(cfg: ExperimentConfig) -> None:
         _run_cmd(args, cfg.root)
 
 
+def normalize_eu_for_retriever(
+    cfg: ExperimentConfig,
+    retriever_name: str,
+    alpha: int,
+    output_suffix: str = "",
+) -> None:
+    """Normalize EU for a specific retriever and alpha (e.g., MMR deterministic)."""
+    base_path = (
+        cfg.root
+        / "experiment_results"
+        / cfg.generator_name
+        / f"lamp{cfg.lamp_num}"
+        / retriever_name
+    )
+    
+    suffix = output_suffix
+    if suffix and not suffix.startswith("_"):
+        suffix = f"_{suffix}"
+    
+    # Expected input file (raw results)
+    raw_fp = base_path / f"alpha_{alpha}{suffix}.json"
+    if not raw_fp.exists():
+        print(f"[skip] raw results not found: {raw_fp}")
+        return
+    
+    # Expected output file (normalized)
+    out_fp = base_path / f"alpha_{alpha}{suffix}_normalized.json"
+    if cfg.skip_existing and out_fp.exists():
+        print(f"[skip] existing normalized: {out_fp}")
+        return
+    
+    args = [
+        str(cfg.python_exe),
+        "normalize_eu.py",
+        "--generator_name",
+        cfg.generator_name,
+        "--lamp_num",
+        str(cfg.lamp_num),
+        "--retriever_name",
+        retriever_name,
+        "--alpha",
+        str(alpha),
+        "--all_alphas",
+        str(alpha),
+    ]
+    if suffix:
+        args.extend(["--input_suffix", suffix])
+    _run_cmd(args, cfg.root)
+
+
 def raw_results_path(
     cfg: ExperimentConfig,
     retriever_name: str,
@@ -195,6 +367,18 @@ def reset_run_outputs(cfg: ExperimentConfig, include_gold: bool = True) -> None:
     mmr_det_fp = raw_results_path(cfg, "mmr", 1, output_suffix="_mmr_deterministic")
     if mmr_det_fp.exists():
         mmr_det_fp.unlink()
+        deleted += 1
+
+    mmr_det_norm_fp = (
+        cfg.root
+        / "experiment_results"
+        / cfg.generator_name
+        / f"lamp{cfg.lamp_num}"
+        / "mmr"
+        / "alpha_1_mmr_deterministic_normalized.json"
+    )
+    if mmr_det_norm_fp.exists():
+        mmr_det_norm_fp.unlink()
         deleted += 1
 
     print(f"reset_run_outputs: deleted {deleted} file(s)")
@@ -298,6 +482,51 @@ def load_raw_rows(
                     "ee_d": float(entry["EE"]["disparity"]),
                     "ee_r": float(entry["EE"]["relevance"]),
                     "eu": eu_value,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def load_normalized_rows_for_retriever(
+    cfg: ExperimentConfig,
+    retriever_name: str,
+    alphas: tuple[int, ...],
+    output_suffix: str = "",
+) -> pd.DataFrame:
+    """Load normalized results for any retriever (e.g., MMR deterministic)."""
+    rows: list[dict] = []
+    for alpha in alphas:
+        suffix = output_suffix
+        if suffix and not suffix.startswith("_"):
+            suffix = f"_{suffix}"
+        
+        fp = (
+            cfg.root
+            / "experiment_results"
+            / cfg.generator_name
+            / f"lamp{cfg.lamp_num}"
+            / retriever_name
+            / f"alpha_{alpha}{suffix}_normalized.json"
+        )
+        
+        if not fp.exists():
+            raise FileNotFoundError(
+                f"Missing normalized file: {fp}. "
+                f"Run normalize_eu_for_retriever(cfg, '{retriever_name}', {alpha}, '{output_suffix}') first."
+            )
+        
+        with fp.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        for qid, entry in data.items():
+            rows.append(
+                {
+                    "retriever": retriever_name,
+                    "alpha": alpha,
+                    "qid": qid,
+                    "ee_d": entry["EE"]["disparity"],
+                    "ee_r": entry["EE"]["relevance"],
+                    "eu": entry["EU"]["rouge-l"],
                 }
             )
     return pd.DataFrame(rows)

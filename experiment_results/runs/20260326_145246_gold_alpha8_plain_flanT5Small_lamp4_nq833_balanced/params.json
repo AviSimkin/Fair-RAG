@@ -1,0 +1,19 @@
+{
+  "started_at": "2026-03-26T14:52:46",
+  "retriever": "gold",
+  "base_retriever": "gold",
+  "generator": "flanT5Small",
+  "lamp_num": 4,
+  "alpha": 8,
+  "output_suffix": "",
+  "run_tag": "balanced",
+  "max_queries": "833",
+  "k": 5,
+  "n_samples": 12,
+  "deterministic": false,
+  "mmr_lambda": null,
+  "checkpoint_interval": 10,
+  "output_file": "/home/student/Fair-RAG/experiment_results/flanT5Small/lamp4/gold/alpha_8.json",
+  "completed_at": "2026-03-26T15:42:11",
+  "total_queries_processed": 833
+}

@@ -1,0 +1,19 @@
+{
+  "started_at": "2026-03-26T17:21:56",
+  "retriever": "bm25",
+  "base_retriever": "bm25",
+  "generator": "flanT5Small",
+  "lamp_num": 4,
+  "alpha": 1,
+  "output_suffix": "_deterministic",
+  "run_tag": "balanced",
+  "max_queries": "833",
+  "k": 5,
+  "n_samples": 1,
+  "deterministic": true,
+  "mmr_lambda": null,
+  "checkpoint_interval": 10,
+  "output_file": "/home/student/Fair-RAG/experiment_results/flanT5Small/lamp4/bm25/alpha_1_deterministic.json",
+  "completed_at": "2026-03-26T17:29:00",
+  "total_queries_processed": 833
+}

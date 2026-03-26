@@ -1,0 +1,62 @@
+{
+  "312": {
+    "EE": {
+      "disparity": 1.0,
+      "relevance": 0.6,
+      "difference": 0.6
+    },
+    "EU": {
+      "rouge-l": 0.048780486044021486
+    },
+    "max-utility": 0.048780486044021486,
+    "min-utility": 0.048780486044021486
+  },
+  "313": {
+    "EE": {
+      "disparity": 1.0,
+      "relevance": 0.6,
+      "difference": 0.538462
+    },
+    "EU": {
+      "rouge-l": 0.05555555358024698
+    },
+    "max-utility": 0.05555555358024698,
+    "min-utility": 0.05555555358024698
+  },
+  "315": {
+    "EE": {
+      "disparity": 1.0,
+      "relevance": 0.0,
+      "difference": 0.98875
+    },
+    "EU": {
+      "rouge-l": 0.02352940987128043
+    },
+    "max-utility": 0.02352940987128043,
+    "min-utility": 0.02352940987128043
+  },
+  "316": {
+    "EE": {
+      "disparity": 1.0,
+      "relevance": 0.2,
+      "difference": 0.909091
+    },
+    "EU": {
+      "rouge-l": 0.02439024157941724
+    },
+    "max-utility": 0.02439024157941724,
+    "min-utility": 0.02439024157941724
+  },
+  "317": {
+    "EE": {
+      "disparity": 1.0,
+      "relevance": 0.2,
+      "difference": 0.866667
+    },
+    "EU": {
+      "rouge-l": 0.0
+    },
+    "max-utility": 0.0,
+    "min-utility": 0.0
+  }
+}

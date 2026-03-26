@@ -7,7 +7,13 @@ data/create_avocado.sh
 
 # directories
 scripts/
-experiment_results/
+
+# Experiment results: track result files but not checkpoints or temp files
+!experiment_results/**/*.json
+!experiment_results/**/*.tsv
+!experiment_results/**/*.csv
+experiment_results/**/*_ckpt.json
+experiment_results/**/*.tmp
 
 # output files
 *.png

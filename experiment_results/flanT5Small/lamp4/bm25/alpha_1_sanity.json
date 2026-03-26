@@ -1,0 +1,146 @@
+{
+  "312": {
+    "EE": {
+      "disparity": 0.388,
+      "relevance": 0.56,
+      "difference": 0.218667
+    },
+    "EU": {
+      "rouge-l": 0.04559260230345722
+    },
+    "max-utility": 0.09090908628099197,
+    "min-utility": 0.0
+  },
+  "313": {
+    "EE": {
+      "disparity": 0.452,
+      "relevance": 0.58,
+      "difference": 0.216615
+    },
+    "EU": {
+      "rouge-l": 0.051944622227098294
+    },
+    "max-utility": 0.1999999952000001,
+    "min-utility": 0.0
+  },
+  "315": {
+    "EE": {
+      "disparity": 0.148,
+      "relevance": 0.09617,
+      "difference": 0.330525
+    },
+    "EU": {
+      "rouge-l": 0.007999999539200027
+    },
+    "max-utility": 0.07999999539200027,
+    "min-utility": 0.0
+  },
+  "316": {
+    "EE": {
+      "disparity": 0.156,
+      "relevance": 0.28,
+      "difference": 0.220545
+    },
+    "EU": {
+      "rouge-l": 0.007407407172687097
+    },
+    "max-utility": 0.07407407172687097,
+    "min-utility": 0.0
+  },
+  "317": {
+    "EE": {
+      "disparity": 0.152,
+      "relevance": 0.22,
+      "difference": 0.288
+    },
+    "EU": {
+      "rouge-l": 0.012276276044558294
+    },
+    "max-utility": 0.027777775385802676,
+    "min-utility": 0.0
+  },
+  "318": {
+    "EE": {
+      "disparity": 0.136,
+      "relevance": 0.12,
+      "difference": 0.358857
+    },
+    "EU": {
+      "rouge-l": 0.01060605989078288
+    },
+    "max-utility": 0.08333332836805586,
+    "min-utility": 0.0
+  },
+  "319": {
+    "EE": {
+      "disparity": 0.164,
+      "relevance": 0.048085,
+      "difference": 0.370075
+    },
+    "EU": {
+      "rouge-l": 0.002439024194824525
+    },
+    "max-utility": 0.02439024194824525,
+    "min-utility": 0.0
+  },
+  "3110": {
+    "EE": {
+      "disparity": 0.152,
+      "relevance": 0.14,
+      "difference": 0.309778
+    },
+    "EU": {
+      "rouge-l": 0.00930618951951635
+    },
+    "max-utility": 0.0689655122948874,
+    "min-utility": 0.0
+  },
+  "3111": {
+    "EE": {
+      "disparity": 0.136,
+      "relevance": 0.024944,
+      "difference": 0.49728
+    },
+    "EU": {
+      "rouge-l": 0.047658558899562366
+    },
+    "max-utility": 0.08333332833333364,
+    "min-utility": 0.0
+  },
+  "3112": {
+    "EE": {
+      "disparity": 0.12,
+      "relevance": 0.18,
+      "difference": 0.238182
+    },
+    "EU": {
+      "rouge-l": 0.04708615223293985
+    },
+    "max-utility": 0.31578946869806096,
+    "min-utility": 0.0
+  },
+  "3114": {
+    "EE": {
+      "disparity": 0.132,
+      "relevance": 0.09617,
+      "difference": 0.319225
+    },
+    "EU": {
+      "rouge-l": 0.0
+    },
+    "max-utility": 0.0,
+    "min-utility": 0.0
+  },
+  "3115": {
+    "EE": {
+      "disparity": 0.128,
+      "relevance": 0.12,
+      "difference": 0.259667
+    },
+    "EU": {
+      "rouge-l": 0.017457343813859473
+    },
+    "max-utility": 0.07407406913580279,
+    "min-utility": 0.0
+  }
+}

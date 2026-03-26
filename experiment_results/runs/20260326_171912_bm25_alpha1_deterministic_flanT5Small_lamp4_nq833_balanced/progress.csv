@@ -1,0 +1,8 @@
+timestamp,query_count,total_queries,new_this_run,retriever,alpha,suffix,run_tag,mean_ee_d,mean_ee_r,mean_eu
+2026-03-26T17:19:36,540,833,10,bm25,1,_deterministic,balanced,1.000000,0.283307,0.044079
+2026-03-26T17:20:03,550,833,20,bm25,1,_deterministic,balanced,1.000000,0.287667,0.044430
+2026-03-26T17:20:25,560,833,30,bm25,1,_deterministic,balanced,1.000000,0.287173,0.044058
+2026-03-26T17:20:44,570,833,40,bm25,1,_deterministic,balanced,1.000000,0.284591,0.043788
+2026-03-26T17:21:02,580,833,50,bm25,1,_deterministic,balanced,1.000000,0.281830,0.043685
+2026-03-26T17:21:24,590,833,60,bm25,1,_deterministic,balanced,1.000000,0.288406,0.044129
+2026-03-26T17:21:44,600,833,70,bm25,1,_deterministic,balanced,1.000000,0.290266,0.044576

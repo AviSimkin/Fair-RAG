@@ -21,12 +21,19 @@
 """
 
 
+import csv
 import os
 import argparse
+import warnings
 import numpy as np
 import json
 import re
+from datetime import datetime
 from transformers import AutoTokenizer
+
+# Suppress non-critical warnings to reduce output noise
+warnings.filterwarnings('ignore', category=FutureWarning, message='.*resume_download.*')
+warnings.filterwarnings('ignore', category=UserWarning, message='.*pipelines sequentially on GPU.*')
 
 from utils import (
     models_info,
@@ -163,12 +170,27 @@ def get_labels(lamp_num):
         raise ValueError(f"LaMP {lamp_num} is not classification task")
 
 
+def _save_ckpt_atomic(ckpt_fp: str, results: dict) -> None:
+    """Atomically write a checkpoint file (survives machine kills on POSIX systems)."""
+    tmp_fp = ckpt_fp + ".tmp"
+    with open(tmp_fp, "w") as f:
+        json.dump({"results": results}, f)
+    os.replace(tmp_fp, ckpt_fp)
+
+
+def _append_progress_row(progress_fp: str, row: list) -> None:
+    """Append one row to the rolling progress CSV."""
+    with open(progress_fp, "a", newline="") as f:
+        csv.writer(f).writerow(row)
+
+
 def main(args):
     LAMP_NUM: int = args.lamp_num
     SPLIT_TYPE = args.lamp_split_type
     GENERATOR_NAME = args.generator_name
     TOKENIZER = AutoTokenizer.from_pretrained(models_info[GENERATOR_NAME]["model_id"])
-    TOKENIZER_MAX_LEN = TOKENIZER.model_max_length
+    # Use conservative token limit (20% buffer) to prevent overflow errors during tokenization
+    TOKENIZER_MAX_LEN = max(1, int(TOKENIZER.model_max_length * 0.8))
     RETRIEVER_NAME = args.retriever_name  # deterministic retriever
     is_mmr_retriever = RETRIEVER_NAME == "mmr"
     base_retriever_name = args.mmr_base_retriever if is_mmr_retriever else RETRIEVER_NAME
@@ -205,6 +227,53 @@ def main(args):
         f"alpha_{ALPHA}{output_suffix}.json",
     )
     del EXP_RESULTS_DIR_PATH
+    # --- Checkpoint path (same dir as final output, different filename) ---
+    CHECKPOINT_FP = EXP_RESULTS_FP[:-5] + "_ckpt.json"
+
+    # --- Organized run-log directory ---
+    _nq_str = str(args.max_queries) if args.max_queries is not None else "all"
+    _suffix_clean = output_suffix.lstrip("_").replace("_", "-") if output_suffix else "plain"
+    _run_tag = getattr(args, "run_tag", "") or ""
+    _run_tag_str = f"_{_run_tag}" if _run_tag else ""
+    _run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    _run_dir_name = (
+        f"{_run_ts}_{base_retriever_name}_alpha{ALPHA}_{_suffix_clean}"
+        f"_{GENERATOR_NAME}_lamp{LAMP_NUM}_nq{_nq_str}{_run_tag_str}"
+    )
+    RUN_LOG_DIR = os.path.join(CUR_DIR_PATH, "experiment_results", "runs", _run_dir_name)
+    os.makedirs(RUN_LOG_DIR, exist_ok=True)
+
+    _params_obj = {
+        "started_at": datetime.now().isoformat(timespec="seconds"),
+        "retriever": RETRIEVER_NAME,
+        "base_retriever": base_retriever_name,
+        "generator": GENERATOR_NAME,
+        "lamp_num": LAMP_NUM,
+        "alpha": ALPHA,
+        "output_suffix": output_suffix,
+        "run_tag": _run_tag,
+        "max_queries": _nq_str,
+        "k": args.k,
+        "n_samples": args.n_samples,
+        "deterministic": force_deterministic,
+        "mmr_lambda": args.mmr_lambda if is_mmr_retriever else None,
+        "checkpoint_interval": args.checkpoint_interval,
+        "output_file": EXP_RESULTS_FP,
+        "completed_at": None,
+    }
+    with open(os.path.join(RUN_LOG_DIR, "params.json"), "w") as _pf:
+        json.dump(_params_obj, _pf, indent=2)
+
+    PROGRESS_CSV_FP = os.path.join(RUN_LOG_DIR, "progress.csv")
+    _PROGRESS_HEADER = [
+        "timestamp", "query_count", "total_queries", "new_this_run",
+        "retriever", "alpha", "suffix", "run_tag",
+        "mean_ee_d", "mean_ee_r", "mean_eu",
+    ]
+    with open(PROGRESS_CSV_FP, "w", newline="") as _pcsv:
+        csv.writer(_pcsv).writerow(_PROGRESS_HEADER)
+    print(f"[run-log] {RUN_LOG_DIR}", flush=True)
+
     RETRIEVAL_RESULTS_FP = os.path.join(
         CUR_DIR_PATH,
         "retrieval",
@@ -253,9 +322,31 @@ def main(args):
     # Iterate over qids
     max_queries = args.max_queries  # None means run all
     query_count = 0
+    new_query_count = 0  # tracks only queries processed fresh in this run (not resumed)
     _run_ee_d = 0.0
     _run_ee_r = 0.0
     _run_eu = 0.0
+
+    # --- Resume from checkpoint if one exists ---
+    if os.path.exists(CHECKPOINT_FP):
+        with open(CHECKPOINT_FP, "r") as _cf:
+            _ckpt_data = json.load(_cf)
+        qid_results_map = _ckpt_data.get("results", {})
+        _resumed_count = len(qid_results_map)
+        if _resumed_count > 0:
+            for _v in qid_results_map.values():
+                _run_ee_d += _v["EE"].get("disparity", 0.0)
+                _run_ee_r += _v["EE"].get("relevance", 0.0)
+                _eu_dict = _v.get("EU", {})
+                _run_eu += float(next(iter(_eu_dict.values()))) if _eu_dict else 0.0
+            print(
+                f"[checkpoint] Resuming: {_resumed_count} queries already done. "
+                f"avg EE-R so far: {_run_ee_r / _resumed_count:.4f}",
+                flush=True,
+            )
+    else:
+        _resumed_count = 0
+
     _total_label = str(max_queries) if max_queries is not None else "all"
     for input_entry, output_entry in zip(inputs_file_iterator, outputs_file_iterator):
         if max_queries is not None and query_count >= max_queries:
@@ -263,6 +354,9 @@ def main(args):
         query_count += 1
         assert input_entry["id"] == output_entry["id"]
         qid: str = input_entry["id"]
+        # Resume: skip queries already processed and stored in checkpoint
+        if qid in qid_results_map:
+            continue
         entry_question: str = input_entry["input"]
         entry_target: str = output_entry["output"]  # gold label
         qid_results_map.update(
@@ -302,8 +396,12 @@ def main(args):
 
         ## Perform ranking generation
         if force_deterministic:
-            # Deterministic baseline: always use the same top-k ranking.
-            deterministic_ranking = np.argsort(-scores, kind="mergesort")[:k]
+            # For MMR, retrieval_results_qid is already re-ordered by MMR score.
+            # Keep that order instead of re-sorting by original retriever scores.
+            if is_mmr_retriever:
+                deterministic_ranking = np.arange(len(retrieval_results_qid))[:k]
+            else:
+                deterministic_ranking = np.argsort(-scores, kind="mergesort")[:k]
             sampled_rankings = deterministic_ranking.reshape(1, -1)
         else:
             pl_result = pl.gumbel_sample_rankings(
@@ -351,6 +449,13 @@ def main(args):
                 final_prompt = trim_sentence_by_token_len(
                     final_prompt, tokenizer=TOKENIZER, max_tok_len=TOKENIZER_MAX_LEN
                 )
+                # Defensive: ensure we never exceed actual model limit
+                token_count = len(TOKENIZER.tokenize(final_prompt))
+                if token_count > TOKENIZER.model_max_length:
+                    print(f"[warn] prompt token count {token_count} exceeds model max {TOKENIZER.model_max_length}; aggressive re-trim", flush=True)
+                    final_prompt = trim_sentence_by_token_len(
+                        final_prompt, tokenizer=TOKENIZER, max_tok_len=int(TOKENIZER.model_max_length * 0.7)
+                    )
                 pred = qa_model.answer_question(final_prompt=final_prompt).strip()
                 pred = (
                     "<empty>"
@@ -378,28 +483,73 @@ def main(args):
         _run_ee_d += ee_results.get("disparity", 0.0)
         _run_ee_r += ee_results.get("relevance", 0.0)
         _run_eu += expected_utility
-        if query_count % 10 == 0:
-            print(
-                f"[{query_count}/{_total_label}] "
-                f"avg EE-D: {_run_ee_d / query_count:.4f} | "
-                f"avg EE-R: {_run_ee_r / query_count:.4f} | "
-                f"avg EU ({metric_name}): {_run_eu / query_count:.4f}",
-                flush=True,
-            )
+        new_query_count += 1
+        _total_processed = _resumed_count + new_query_count
+        _print_every = args.print_interval if args.print_interval is not None else args.checkpoint_interval
+        if new_query_count % args.checkpoint_interval == 0:
+            if new_query_count % _print_every == 0:
+                print(
+                    f"[{_total_processed}/{_total_label}] "
+                    f"avg EE-D: {_run_ee_d / _total_processed:.4f} | "
+                    f"avg EE-R: {_run_ee_r / _total_processed:.4f} | "
+                    f"avg EU ({metric_name}): {_run_eu / _total_processed:.4f}",
+                    flush=True,
+                )
+            # Save checkpoint so we can resume if the machine dies
+            _save_ckpt_atomic(CHECKPOINT_FP, qid_results_map)
+            # Append a row to the rolling progress CSV
+            _append_progress_row(PROGRESS_CSV_FP, [
+                datetime.now().isoformat(timespec="seconds"),
+                _total_processed,
+                _total_label,
+                new_query_count,
+                base_retriever_name,
+                ALPHA,
+                output_suffix or "plain",
+                _run_tag,
+                f"{_run_ee_d / _total_processed:.6f}",
+                f"{_run_ee_r / _total_processed:.6f}",
+                f"{_run_eu / _total_processed:.6f}",
+            ])
 
-    if query_count % 10 != 0:
+    _total_processed = _resumed_count + new_query_count
+    if _total_processed > 0 and new_query_count % args.checkpoint_interval != 0:
+        _print_every = args.print_interval if args.print_interval is not None else args.checkpoint_interval
         print(
-            f"[{query_count}/{_total_label}] FINAL "
-            f"avg EE-D: {_run_ee_d / query_count:.4f} | "
-            f"avg EE-R: {_run_ee_r / query_count:.4f} | "
-            f"avg EU ({metric_name}): {_run_eu / query_count:.4f}",
+            f"[{_total_processed}/{_total_label}] FINAL "
+            f"avg EE-D: {_run_ee_d / _total_processed:.4f} | "
+            f"avg EE-R: {_run_ee_r / _total_processed:.4f} | "
+            f"avg EU ({metric_name}): {_run_eu / _total_processed:.4f}",
             flush=True,
         )
+        # Final progress row
+        _append_progress_row(PROGRESS_CSV_FP, [
+            datetime.now().isoformat(timespec="seconds"),
+            _total_processed,
+            _total_label,
+            new_query_count,
+            base_retriever_name,
+            ALPHA,
+            output_suffix or "plain",
+            _run_tag,
+            f"{_run_ee_d / _total_processed:.6f}",
+            f"{_run_ee_r / _total_processed:.6f}",
+            f"{_run_eu / _total_processed:.6f}",
+        ])
 
     # Write experiment results for the LAMP_NUM
     with open(EXP_RESULTS_FP, "w") as f:
         json.dump(qid_results_map, f, indent=2)
         f.close()
+
+    # Remove checkpoint (run completed successfully) and finalize run log
+    if os.path.exists(CHECKPOINT_FP):
+        os.remove(CHECKPOINT_FP)
+    _params_obj["completed_at"] = datetime.now().isoformat(timespec="seconds")
+    _params_obj["total_queries_processed"] = _total_processed
+    with open(os.path.join(RUN_LOG_DIR, "params.json"), "w") as _pf:
+        json.dump(_params_obj, _pf, indent=2)
+    print(f"[run-log] completed → {RUN_LOG_DIR}", flush=True)
 
 
 if __name__ == "__main__":
@@ -508,6 +658,31 @@ if __name__ == "__main__":
         type=float,
         default=0.7,
         help="MMR lambda in [0,1]. Higher favors relevance, lower favors diversity.",
+    )
+    parser.add_argument(
+        "--run_tag",
+        type=str,
+        default="",
+        help=(
+            "Human-readable label for this run (e.g. 'balanced', 'weak'). "
+            "Used in the run-log folder name."
+        ),
+    )
+    parser.add_argument(
+        "--checkpoint_interval",
+        type=int,
+        default=10,
+        help="Save a checkpoint and log progress every N newly processed queries.",
+    )
+    parser.add_argument(
+        "--print_interval",
+        type=int,
+        default=None,
+        help=(
+            "Print progress to stdout every N newly processed queries. "
+            "Defaults to checkpoint_interval when not set. "
+            "Set higher (e.g. 40) for long runs to reduce noise."
+        ),
     )
     args = parser.parse_args()
 
