@@ -1,0 +1,18 @@
+{
+  "started_at": "2026-03-26T21:38:22",
+  "retriever": "mmr",
+  "base_retriever": "bm25",
+  "generator": "flanT5Small",
+  "lamp_num": 4,
+  "alpha": 1,
+  "output_suffix": "_mmr_lambda_0p6",
+  "run_tag": "",
+  "max_queries": "833",
+  "k": 5,
+  "n_samples": 1,
+  "deterministic": true,
+  "mmr_lambda": 0.6,
+  "checkpoint_interval": 10,
+  "output_file": "/home/student/Fair-RAG/experiment_results/flanT5Small/lamp4/mmr/alpha_1_mmr_lambda_0p6.json",
+  "completed_at": null
+}

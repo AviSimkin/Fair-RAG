@@ -1,1 +1,4 @@
 timestamp,query_count,total_queries,new_this_run,retriever,alpha,suffix,run_tag,mean_ee_d,mean_ee_r,mean_eu
+2026-03-26T17:50:25,140,833,10,bm25,1,_mmr_deterministic,balanced,1.000000,0.314588,0.052455
+2026-03-26T18:11:35,150,833,20,bm25,1,_mmr_deterministic,balanced,1.000000,0.309615,0.053783
+2026-03-26T18:32:56,160,833,30,bm25,1,_mmr_deterministic,balanced,1.000000,0.312764,0.054377

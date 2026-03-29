@@ -1,0 +1,19 @@
+{
+  "started_at": "2026-03-27T10:56:47",
+  "retriever": "bm25",
+  "base_retriever": "bm25",
+  "generator": "flanT5Small",
+  "lamp_num": 4,
+  "alpha": 2,
+  "output_suffix": "",
+  "run_tag": "balanced",
+  "max_queries": "833",
+  "k": 5,
+  "n_samples": 12,
+  "deterministic": false,
+  "mmr_lambda": null,
+  "checkpoint_interval": 10,
+  "output_file": "/home/student/Fair-RAG/experiment_results/flanT5Small/lamp4/bm25/alpha_2.json",
+  "completed_at": "2026-03-27T12:16:03",
+  "total_queries_processed": 833
+}

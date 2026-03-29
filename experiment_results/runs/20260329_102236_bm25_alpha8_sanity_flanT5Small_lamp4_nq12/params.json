@@ -1,0 +1,19 @@
+{
+  "started_at": "2026-03-29T10:22:36",
+  "retriever": "bm25",
+  "base_retriever": "bm25",
+  "generator": "flanT5Small",
+  "lamp_num": 4,
+  "alpha": 8,
+  "output_suffix": "_sanity",
+  "run_tag": "",
+  "max_queries": "12",
+  "k": 5,
+  "n_samples": 10,
+  "deterministic": false,
+  "mmr_lambda": null,
+  "checkpoint_interval": 10,
+  "output_file": "/home/student/Fair-RAG/experiment_results/flanT5Small/lamp4/bm25/alpha_8_sanity.json",
+  "completed_at": "2026-03-29T10:23:12",
+  "total_queries_processed": 12
+}
