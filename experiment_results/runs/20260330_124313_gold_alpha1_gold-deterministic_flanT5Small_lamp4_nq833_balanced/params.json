@@ -1,0 +1,21 @@
+{
+  "started_at": "2026-03-30T12:43:13",
+  "retriever": "gold",
+  "base_retriever": "gold",
+  "generator": "flanT5Small",
+  "lamp_num": 4,
+  "alpha": 1,
+  "output_suffix": "_gold_deterministic",
+  "run_tag": "balanced",
+  "max_queries": "833",
+  "k": 5,
+  "n_samples": 1,
+  "deterministic": true,
+  "mmr_lambda": null,
+  "checkpoint_interval": 10,
+  "only_qids_file": null,
+  "recompute_target_qids": false,
+  "output_file": "/Users/asimk/Code/Fair-RAG/experiment_results/flanT5Small/lamp4/gold/alpha_1_gold_deterministic.json",
+  "completed_at": "2026-03-30T12:49:32",
+  "total_queries_processed": 833
+}

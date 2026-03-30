@@ -58,7 +58,9 @@ def make_trec_top_file_for_single_qid(
     trec_top_file follows the following format:
     `qid sampleID docID rank score runID`
     """
-    fp = os.path.join(CUR_DIR_PATH, "trec_top_files", f"{qid}.tsv")
+    trec_top_dir = os.path.join(CUR_DIR_PATH, "trec_top_files")
+    os.makedirs(trec_top_dir, exist_ok=True)
+    fp = os.path.join(trec_top_dir, f"{qid}.tsv")
     with open(fp, "w") as f:
         f.write("\t".join(["qid", "sample", "docno", "rank", "sim", "run_id"]))
         f.write("\n")
@@ -87,7 +89,9 @@ def make_trec_rel_file_for_single_qid(qid: str, relevance_mapping_fp: str) -> st
     Given qid and relevance mapping file file path,
         create a trec_rel_file and returns the path to the file
     """
-    fp = os.path.join(CUR_DIR_PATH, "trec_rel_files", f"{qid}.tsv")
+    trec_rel_dir = os.path.join(CUR_DIR_PATH, "trec_rel_files")
+    os.makedirs(trec_rel_dir, exist_ok=True)
+    fp = os.path.join(trec_rel_dir, f"{qid}.tsv")
 
     dtype_spec = {"qid": str, "pid": str, "relevance_label": str}
     mapping_df = pd.read_csv(relevance_mapping_fp, delimiter="\t", dtype=dtype_spec)

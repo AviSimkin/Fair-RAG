@@ -184,6 +184,34 @@ def _append_progress_row(progress_fp: str, row: list) -> None:
         csv.writer(f).writerow(row)
 
 
+def _load_qids_from_file(fp: str) -> set[str]:
+    """Load qids from a JSON list/object or a plain text file (one per line / comma-separated)."""
+    with open(fp, "r", encoding="utf-8") as f:
+        raw = f.read().strip()
+
+    if not raw:
+        return set()
+
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            if "qids" in parsed and isinstance(parsed["qids"], list):
+                return {str(x).strip() for x in parsed["qids"] if str(x).strip()}
+            return {str(k).strip() for k in parsed.keys() if str(k).strip()}
+        if isinstance(parsed, list):
+            return {str(x).strip() for x in parsed if str(x).strip()}
+    except json.JSONDecodeError:
+        pass
+
+    qids: set[str] = set()
+    for line in raw.splitlines():
+        for token in line.split(","):
+            qid = token.strip()
+            if qid:
+                qids.add(qid)
+    return qids
+
+
 def main(args):
     LAMP_NUM: int = args.lamp_num
     SPLIT_TYPE = args.lamp_split_type
@@ -201,6 +229,16 @@ def main(args):
         output_suffix = f"_{output_suffix}"
     K: int = args.k
     N_SAMPLES: int = args.n_samples
+    target_qids: set[str] | None = None
+    if args.only_qids_file:
+        target_qids = _load_qids_from_file(args.only_qids_file)
+        if not target_qids:
+            raise ValueError(f"No qids found in --only_qids_file: {args.only_qids_file}")
+        print(
+            f"[targeted] qid filter active: {len(target_qids)} qids "
+            f"from {args.only_qids_file}",
+            flush=True,
+        )
     force_deterministic = args.deterministic_ranking or is_mmr_retriever
     effective_n_samples = 1 if force_deterministic else N_SAMPLES
     if force_deterministic and N_SAMPLES != 1:
@@ -258,6 +296,8 @@ def main(args):
         "deterministic": force_deterministic,
         "mmr_lambda": args.mmr_lambda if is_mmr_retriever else None,
         "checkpoint_interval": args.checkpoint_interval,
+        "only_qids_file": args.only_qids_file or None,
+        "recompute_target_qids": bool(args.recompute_target_qids),
         "output_file": EXP_RESULTS_FP,
         "completed_at": None,
     }
@@ -319,6 +359,27 @@ def main(args):
     #       }
     # }
     qid_results_map = dict()
+    target_mode = target_qids is not None
+    if target_mode and os.path.exists(EXP_RESULTS_FP):
+        with open(EXP_RESULTS_FP, "r", encoding="utf-8") as _ef:
+            _existing = json.load(_ef)
+        if isinstance(_existing, dict):
+            qid_results_map.update(_existing)
+            print(
+                f"[targeted] bootstrapped {len(_existing)} existing results from {EXP_RESULTS_FP}",
+                flush=True,
+            )
+        if args.recompute_target_qids:
+            _removed = 0
+            for _qid in target_qids:
+                if _qid in qid_results_map:
+                    qid_results_map.pop(_qid, None)
+                    _removed += 1
+            print(
+                f"[targeted] removed {_removed} target qids from existing results; "
+                "they will be recomputed",
+                flush=True,
+            )
     # Iterate over qids
     max_queries = args.max_queries  # None means run all
     query_count = 0
@@ -327,14 +388,27 @@ def main(args):
     _run_ee_r = 0.0
     _run_eu = 0.0
 
+    _resumed_count = 0
     # --- Resume from checkpoint if one exists ---
     if os.path.exists(CHECKPOINT_FP):
         with open(CHECKPOINT_FP, "r") as _cf:
             _ckpt_data = json.load(_cf)
-        qid_results_map = _ckpt_data.get("results", {})
-        _resumed_count = len(qid_results_map)
+        _ckpt_results = _ckpt_data.get("results", {})
+        if isinstance(_ckpt_results, dict):
+            qid_results_map.update(_ckpt_results)
+
+        if target_mode and args.recompute_target_qids:
+            for _qid in target_qids:
+                qid_results_map.pop(_qid, None)
+
+        _resumed_qids = set(_ckpt_results.keys()) if isinstance(_ckpt_results, dict) else set()
+        if target_mode:
+            _resumed_qids &= target_qids
+        _resumed_qids = {_q for _q in _resumed_qids if _q in qid_results_map}
+        _resumed_count = len(_resumed_qids)
         if _resumed_count > 0:
-            for _v in qid_results_map.values():
+            for _qid in _resumed_qids:
+                _v = qid_results_map[_qid]
                 _run_ee_d += _v["EE"].get("disparity", 0.0)
                 _run_ee_r += _v["EE"].get("relevance", 0.0)
                 _eu_dict = _v.get("EU", {})
@@ -344,16 +418,19 @@ def main(args):
                 f"avg EE-R so far: {_run_ee_r / _resumed_count:.4f}",
                 flush=True,
             )
-    else:
-        _resumed_count = 0
-
-    _total_label = str(max_queries) if max_queries is not None else "all"
+    _total_label = (
+        f"target:{len(target_qids)}"
+        if target_mode
+        else (str(max_queries) if max_queries is not None else "all")
+    )
     for input_entry, output_entry in zip(inputs_file_iterator, outputs_file_iterator):
         if max_queries is not None and query_count >= max_queries:
             break
         query_count += 1
         assert input_entry["id"] == output_entry["id"]
         qid: str = input_entry["id"]
+        if target_mode and qid not in target_qids:
+            continue
         # Resume: skip queries already processed and stored in checkpoint
         if qid in qid_results_map:
             continue
@@ -375,16 +452,26 @@ def main(args):
 
         k = len(retrieval_results_qid) if K == -1 else K
         scores = [pid_score_pair[1] for pid_score_pair in retrieval_results_qid]
-        scores = np.array(scores)
-        min_value = scores.min()
-        max_value = scores.max()
+        scores = np.array(scores, dtype=float)
         if RETRIEVER_NAME != "gold":
             # ensure no negative scores (since we are going to apply ALPHA)
+            min_value = float(scores.min())
             if min_value < 0:
                 # rescale the scores to have minimum value of 0
                 scores = scores - min_value
+            min_value = float(scores.min())
+            max_value = float(scores.max())
+            denom = max_value - min_value
             # Min-Max Normalization, followed by scaling to [1, 2]
-            scores = (scores - min_value) / (max_value - min_value)
+            if not np.isfinite(denom) or denom <= 0:
+                # Degenerate score vector (all equal or invalid): use uniform weights.
+                print(
+                    f"[warn] degenerate retriever scores for qid={qid}; using uniform scores",
+                    flush=True,
+                )
+                scores = np.ones_like(scores, dtype=float)
+            else:
+                scores = (scores - min_value) / denom
             scores = scores + 1  # rescale to [1, 2] to amplify the effect of ALPHA
         else:  # oracle retriever
             # retrieval scores for oracle retriever are in binary (either 0 or 1)
@@ -682,6 +769,23 @@ if __name__ == "__main__":
             "Print progress to stdout every N newly processed queries. "
             "Defaults to checkpoint_interval when not set. "
             "Set higher (e.g. 40) for long runs to reduce noise."
+        ),
+    )
+    parser.add_argument(
+        "--only_qids_file",
+        type=str,
+        default="",
+        help=(
+            "Optional path to qids list (json/txt). If set, only those qids are processed. "
+            "Useful for targeted recomputation."
+        ),
+    )
+    parser.add_argument(
+        "--recompute_target_qids",
+        action="store_true",
+        help=(
+            "When used with --only_qids_file, remove target qids from existing/checkpoint "
+            "results before running so they are recomputed and merged back."
         ),
     )
     args = parser.parse_args()

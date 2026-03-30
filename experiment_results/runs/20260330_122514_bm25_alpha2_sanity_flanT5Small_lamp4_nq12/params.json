@@ -1,0 +1,21 @@
+{
+  "started_at": "2026-03-30T12:25:14",
+  "retriever": "bm25",
+  "base_retriever": "bm25",
+  "generator": "flanT5Small",
+  "lamp_num": 4,
+  "alpha": 2,
+  "output_suffix": "_sanity",
+  "run_tag": "",
+  "max_queries": "12",
+  "k": 5,
+  "n_samples": 10,
+  "deterministic": false,
+  "mmr_lambda": null,
+  "checkpoint_interval": 10,
+  "only_qids_file": null,
+  "recompute_target_qids": false,
+  "output_file": "/Users/asimk/Code/Fair-RAG/experiment_results/flanT5Small/lamp4/bm25/alpha_2_sanity.json",
+  "completed_at": "2026-03-30T12:26:51",
+  "total_queries_processed": 12
+}

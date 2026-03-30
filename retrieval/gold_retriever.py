@@ -24,6 +24,12 @@ def main(args):
         GENERATOR_NAME,
         f"{LAMP_NUM}_delta.tsv",
     )
+    REL_FP = os.path.join(
+        os.path.dirname(CUR_DIR_PATH),
+        "data",
+        f"lamp_utility_labels_{GENERATOR_NAME}",
+        f"{LAMP_NUM}_relevance_mapping.tsv",
+    )
     # loading this just to get the final qids
     FINAL_OUTPUT_DATA_FP = os.path.join(
         os.path.dirname(CUR_DIR_PATH),
@@ -33,31 +39,38 @@ def main(args):
     )
     with open(FINAL_OUTPUT_DATA_FP, "r") as f:
         final_data = json.load(f)
-    f.close()
 
     final_qids: list[str] = []
     for entry_dict in final_data["golds"]:
         final_qids.append(entry_dict["id"])
-    del final_data, FINAL_OUTPUT_DATA_FP
 
-    # leave only with final qids in delta df
     dtype_spec = {"qid": str, "pid": str}
-    delta_df = pd.read_csv(DELTA_FP, sep="\t", dtype=dtype_spec)
-    delta_df = delta_df[delta_df["qid"].isin(final_qids)]
+    if os.path.exists(DELTA_FP):
+        utility_df = pd.read_csv(DELTA_FP, sep="\t", dtype=dtype_spec)
+        utility_df = utility_df[utility_df["qid"].isin(final_qids)]
+        utility_df = utility_df[["qid", "pid", "delta"]].copy()
+        utility_df["score"] = (utility_df["delta"] > 0).astype(int)
+        sort_cols = ["score", "pid"]
+    elif os.path.exists(REL_FP):
+        utility_df = pd.read_csv(REL_FP, sep="\t", dtype=dtype_spec)
+        utility_df = utility_df[utility_df["qid"].isin(final_qids)]
+        utility_df = utility_df[["qid", "pid", "relevance_label"]].copy()
+        utility_df = utility_df.rename(columns={"relevance_label": "score"})
+        sort_cols = ["score", "pid"]
+    else:
+        raise FileNotFoundError(
+            "Missing utility labels for gold retriever. Expected one of:\n"
+            f" - {DELTA_FP}\n"
+            f" - {REL_FP}"
+        )
 
-    # oracle retrieval:
-    # rank documents based on delta (considering utility gain a retrieval score)
+    # oracle retrieval: rank by binary utility score and tie-break by pid.
     rank_dict = dict()
     for qid in final_qids:
-        qid_delta_df = delta_df[delta_df["qid"] == qid]
-        sorted_qid_delta_df = qid_delta_df.sort_values(
-            by=["delta", "pid"], ascending=[False, False]
-        )
-        sorted_qid_delta_df = sorted_qid_delta_df[["pid", "delta"]]
-        pid_list = sorted_qid_delta_df["pid"].tolist()
-        delta_list = sorted_qid_delta_df["delta"].tolist()
-        # Change delta_list to binary score list
-        score_list = [1 if delta > 0 else 0 for delta in delta_list]
+        qid_df = utility_df[utility_df["qid"] == qid]
+        sorted_qid_df = qid_df.sort_values(by=sort_cols, ascending=[False, False])
+        pid_list = sorted_qid_df["pid"].tolist()
+        score_list = sorted_qid_df["score"].astype(int).tolist()
         qid_retrieval_results = []
         for pid, score in zip(pid_list, score_list):
             qid_retrieval_results.append((pid, score))

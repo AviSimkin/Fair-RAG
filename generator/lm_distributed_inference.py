@@ -24,6 +24,15 @@ class PromptLMDistributedInference:
 
     def __init__(self, model_name: str, load_in_8bit=False) -> None:
         self.model_name = model_name
+        # BitsAndBytesConfig 8-bit quantization requires CUDA; disable on Apple Silicon / CPU.
+        if load_in_8bit and not torch.cuda.is_available():
+            import warnings
+            warnings.warn(
+                "8-bit quantization requires CUDA and is not supported on this device. "
+                "Falling back to full precision.",
+                RuntimeWarning,
+            )
+            load_in_8bit = False
         if load_in_8bit:
             quantization_config = BitsAndBytesConfig(
                 load_in_8bit=load_in_8bit,

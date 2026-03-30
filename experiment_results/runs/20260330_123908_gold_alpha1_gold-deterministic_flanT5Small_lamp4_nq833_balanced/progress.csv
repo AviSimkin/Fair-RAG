@@ -1,0 +1,15 @@
+timestamp,query_count,total_queries,new_this_run,retriever,alpha,suffix,run_tag,mean_ee_d,mean_ee_r,mean_eu
+2026-03-30T12:39:20,300,833,10,gold,1,_gold_deterministic,balanced,1.000000,0.993543,0.070947
+2026-03-30T12:39:26,310,833,20,gold,1,_gold_deterministic,balanced,1.000000,0.993731,0.071082
+2026-03-30T12:39:36,320,833,30,gold,1,_gold_deterministic,balanced,1.000000,0.993927,0.070191
+2026-03-30T12:39:45,330,833,40,gold,1,_gold_deterministic,balanced,1.000000,0.993473,0.069610
+2026-03-30T12:39:55,340,833,50,gold,1,_gold_deterministic,balanced,1.000000,0.993660,0.069820
+2026-03-30T12:40:05,350,833,60,gold,1,_gold_deterministic,balanced,1.000000,0.993841,0.068913
+2026-03-30T12:40:16,360,833,70,gold,1,_gold_deterministic,balanced,1.000000,0.994012,0.068664
+2026-03-30T12:40:24,370,833,80,gold,1,_gold_deterministic,balanced,1.000000,0.994161,0.068876
+2026-03-30T12:40:31,380,833,90,gold,1,_gold_deterministic,balanced,1.000000,0.994315,0.069243
+2026-03-30T12:40:42,390,833,100,gold,1,_gold_deterministic,balanced,1.000000,0.994420,0.069368
+2026-03-30T12:40:47,400,833,110,gold,1,_gold_deterministic,balanced,1.000000,0.994547,0.068980
+2026-03-30T12:40:59,410,833,120,gold,1,_gold_deterministic,balanced,1.000000,0.994680,0.068319
+2026-03-30T12:41:09,420,833,130,gold,1,_gold_deterministic,balanced,1.000000,0.994807,0.068140
+2026-03-30T12:41:14,430,833,140,gold,1,_gold_deterministic,balanced,1.000000,0.994928,0.068305

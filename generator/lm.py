@@ -1,12 +1,18 @@
 import os
 import sys
+import gc
 
 CUR_DIR_PATH = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(os.path.dirname(CUR_DIR_PATH))
 
 import torch
 
+# LangChain's device parameter only accepts integers.
+# MPS (Apple Silicon) is targeted via device_map instead.
 _DEVICE = 0 if torch.cuda.is_available() else -1
+_MPS_AVAILABLE = (
+    not torch.cuda.is_available() and torch.backends.mps.is_available()
+)
 
 # https://python.langchain.com/v0.1/docs/integrations/llms/huggingface_pipelines/
 from langchain_community.llms.huggingface_pipeline import HuggingFacePipeline
@@ -48,14 +54,22 @@ class PromptLM:
             raise NotImplementedError
 
     def _initialize_pipeline(self) -> HuggingFacePipeline:
+        # Flush GPU/CPU memory before loading model
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        gc.collect()  # Python garbage collection
+        # On Apple Silicon, use device_map="mps" (LangChain's int-only device
+        # validator doesn't accept torch.device objects).
+        extra_kwargs: dict = {"device_map": "mps"} if _MPS_AVAILABLE else {}
         return HuggingFacePipeline.from_model_id(
             model_id=models_info[self.model_name]["model_id"],
             task=models_info[self.model_name]["hf_pipeline_task"],
             device=_DEVICE,
             model_kwargs=self.model_kwargs,
             pipeline_kwargs=self.pipeline_kwargs,
+            **extra_kwargs,
         )
 
     def answer_question(self, final_prompt: str) -> str:

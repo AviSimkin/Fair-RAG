@@ -1,0 +1,26 @@
+{
+  "312": {
+    "EE": {
+      "disparity": 0.547222,
+      "relevance": 1.0,
+      "difference": 0.031481
+    },
+    "EU": {
+      "rouge-l": 0.06669389015477288
+    },
+    "max-utility": 0.18181817719008275,
+    "min-utility": 0.0
+  },
+  "313": {
+    "EE": {
+      "disparity": 0.663889,
+      "relevance": 1.0,
+      "difference": 0.023932
+    },
+    "EU": {
+      "rouge-l": 0.04990352741957391
+    },
+    "max-utility": 0.22222221728395072,
+    "min-utility": 0.0
+  }
+}

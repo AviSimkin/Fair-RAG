@@ -15,6 +15,7 @@ import argparse
 import numpy as np
 import json
 import copy
+from pathlib import Path
 
 
 CUR_DIR_PATH = os.path.dirname(os.path.realpath(__file__))
@@ -40,76 +41,95 @@ def parse_alphas(alpha_values: str | None) -> list[int]:
     return [int(value.strip()) for value in alpha_values.split(",") if value.strip()]
 
 
+def iter_raw_result_files(base_dir: Path) -> list[Path]:
+    raw_files: list[Path] = []
+    for fp in base_dir.rglob("*.json"):
+        name = fp.name
+        if not name.startswith("alpha_"):
+            continue
+        if name.endswith("_normalized.json") or name.endswith("_ckpt.json"):
+            continue
+        raw_files.append(fp)
+    return sorted(raw_files)
+
+
+def build_global_max_utility_lookup(
+    base_dir: Path,
+    lamp_num: int,
+) -> tuple[dict[str, float], int]:
+    utility_metric = lamp_utility_metric(lamp_num)
+    max_utility_by_qid: dict[str, float] = {}
+    files_scanned = 0
+
+    for fp in iter_raw_result_files(base_dir):
+        with fp.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        files_scanned += 1
+
+        for qid, entry in data.items():
+            if lamp_num != 3:
+                candidate_utility = float(entry["max-utility"])
+            else:
+                candidate_utility = convert_to_higher_the_better(
+                    float(entry["min-utility"]), upper_bound=4
+                )
+
+            current_best = max_utility_by_qid.get(qid)
+            if current_best is None or candidate_utility > current_best:
+                max_utility_by_qid[qid] = candidate_utility
+
+    return max_utility_by_qid, files_scanned
+
+
 def main(args):
     LAMP_NUM: int = args.lamp_num
     GENERATOR_NAME = args.generator_name
     RETRIEVER_NAME = args.retriever_name  # deterministic retriever
     ALPHA: int = args.alpha  # for current alpha's result to normalize
     ALPHAS: list[int] = parse_alphas(args.all_alphas)
+    NORMALIZATION_SCOPE: str = args.normalization_scope
     INPUT_SUFFIX: str = args.input_suffix or ""
     if INPUT_SUFFIX and not INPUT_SUFFIX.startswith("_"):
         INPUT_SUFFIX = f"_{INPUT_SUFFIX}"
+    experiment_dir = Path(CUR_DIR_PATH) / "experiment_results" / GENERATOR_NAME / f"lamp{LAMP_NUM}"
     # access to gold model's experiment results
-    GOLD_RESULTS_FP = os.path.join(
-        CUR_DIR_PATH,
-        "experiment_results",
-        GENERATOR_NAME,
-        f"lamp{LAMP_NUM}",
-        "gold",
-        # safe to say gold retriever is when alpha is 8 (put all relevant docs above non-relevant)
-        "alpha_8.json",
-    )
-    with open(GOLD_RESULTS_FP, "r") as f:
-        gold_results_dict: dict = json.load(f)
-    f.close()
-    del GOLD_RESULTS_FP
+    gold_results_dict: dict = {}
+    if NORMALIZATION_SCOPE == "legacy":
+        GOLD_RESULTS_FP = experiment_dir / "gold" / "alpha_8.json"
+        with GOLD_RESULTS_FP.open("r", encoding="utf-8") as f:
+            gold_results_dict = json.load(f)
     # access to current model's experiment results
-    MODEL_RESULTS_FP = os.path.join(
-        CUR_DIR_PATH,
-        "experiment_results",
-        GENERATOR_NAME,
-        f"lamp{LAMP_NUM}",
-        RETRIEVER_NAME,
-        f"alpha_{ALPHA}{INPUT_SUFFIX}.json",
-    )
-    with open(MODEL_RESULTS_FP, "r") as f:
+    MODEL_RESULTS_FP = experiment_dir / RETRIEVER_NAME / f"alpha_{ALPHA}{INPUT_SUFFIX}.json"
+    with MODEL_RESULTS_FP.open("r", encoding="utf-8") as f:
         model_results_dict: dict = json.load(f)
-    f.close()
-    del MODEL_RESULTS_FP
 
     # access to all alphas experiment results
-    ALL_ALPHAS_MODEL_RESULTS_FP: list[str] = []
+    ALL_ALPHAS_MODEL_RESULTS_FP: list[Path] = []
     for alpha in ALPHAS:
         ALL_ALPHAS_MODEL_RESULTS_FP.append(
-            os.path.join(
-                CUR_DIR_PATH,
-                "experiment_results",
-                GENERATOR_NAME,
-                f"lamp{LAMP_NUM}",
-                RETRIEVER_NAME,
-                f"alpha_{alpha}{INPUT_SUFFIX}.json",
-            )
+            experiment_dir / RETRIEVER_NAME / f"alpha_{alpha}{INPUT_SUFFIX}.json"
         )
     all_alpha_model_results: list[dict] = []
     for fp in ALL_ALPHAS_MODEL_RESULTS_FP:
-        with open(fp, "r") as f:
+        with fp.open("r", encoding="utf-8") as f:
             all_alpha_model_results.append(json.load(f))
-        f.close()
+
+    global_max_utility_by_qid: dict[str, float] = {}
+    global_files_scanned = 0
+    if NORMALIZATION_SCOPE == "all-settings":
+        global_max_utility_by_qid, global_files_scanned = build_global_max_utility_lookup(
+            experiment_dir,
+            lamp_num=LAMP_NUM,
+        )
 
     # save path of normalized EU
-    SAVE_FP = os.path.join(
-        CUR_DIR_PATH,
-        "experiment_results",
-        GENERATOR_NAME,
-        f"lamp{LAMP_NUM}",
-        RETRIEVER_NAME,
-        f"alpha_{ALPHA}{INPUT_SUFFIX}_normalized.json",
-    )
+    SAVE_FP = experiment_dir / RETRIEVER_NAME / f"alpha_{ALPHA}{INPUT_SUFFIX}_normalized.json"
 
     utility_metric = lamp_utility_metric(LAMP_NUM)
     save_dict = copy.deepcopy(model_results_dict)
     missing_in_gold = 0
     missing_in_some_alpha = 0
+    missing_in_global_scope = 0
 
     # iterate over qids in the current model run file to avoid key mismatch
     for qid in model_results_dict:
@@ -120,11 +140,12 @@ def main(args):
             # fallback baseline from current alpha's own best sample
             model_max_utility = model_results_dict[qid]["max-utility"]
 
-            if qid in gold_results_dict:
+            if NORMALIZATION_SCOPE == "legacy" and qid in gold_results_dict:
                 gold_max_utility = gold_results_dict[qid]["max-utility"]
             else:
                 gold_max_utility = model_max_utility
-                missing_in_gold += 1
+                if NORMALIZATION_SCOPE == "legacy":
+                    missing_in_gold += 1
 
             # get model's max utility across all alphas
             for single_alpha_model_results_dict in all_alpha_model_results:
@@ -142,7 +163,7 @@ def main(args):
             # fallback baseline from current alpha's own minimum error
             model_min_error = model_results_dict[qid]["min-utility"]
 
-            if qid in gold_results_dict:
+            if NORMALIZATION_SCOPE == "legacy" and qid in gold_results_dict:
                 gold_max_utility = convert_to_higher_the_better(
                     gold_results_dict[qid]["min-utility"], upper_bound=4
                 )
@@ -150,7 +171,8 @@ def main(args):
                 gold_max_utility = convert_to_higher_the_better(
                     model_min_error, upper_bound=4
                 )
-                missing_in_gold += 1
+                if NORMALIZATION_SCOPE == "legacy":
+                    missing_in_gold += 1
 
             # get model's min error across all alphas
             for single_alpha_model_results_dict in all_alpha_model_results:
@@ -166,7 +188,13 @@ def main(args):
             )
 
         # Normalizing model's EU
-        max_utility = max(gold_max_utility, model_max_utility)
+        if NORMALIZATION_SCOPE == "all-settings":
+            max_utility = global_max_utility_by_qid.get(qid)
+            if max_utility is None:
+                max_utility = model_max_utility
+                missing_in_global_scope += 1
+        else:
+            max_utility = max(gold_max_utility, model_max_utility)
         try:
             normalized_eu: float = model_eu / max_utility
         except ZeroDivisionError:
@@ -176,14 +204,18 @@ def main(args):
         save_dict[qid]["EU"][utility_metric] = normalized_eu
 
     # Save the normalized results file
-    with open(SAVE_FP, "w") as f:
+    with SAVE_FP.open("w", encoding="utf-8") as f:
         json.dump(save_dict, f, indent=2)
-    f.close()
 
-    if missing_in_gold > 0 or missing_in_some_alpha > 0:
+    if NORMALIZATION_SCOPE == "legacy" and (missing_in_gold > 0 or missing_in_some_alpha > 0):
         print(
             "Warning: normalization used fallback due to partial qid overlap "
             f"(missing_in_gold={missing_in_gold}, missing_in_some_alpha={missing_in_some_alpha})."
+        )
+    if NORMALIZATION_SCOPE == "all-settings":
+        print(
+            "Normalization scope: all-settings "
+            f"(files_scanned={global_files_scanned}, missing_in_global_scope={missing_in_global_scope})."
         )
 
 
@@ -226,6 +258,17 @@ if __name__ == "__main__":
         type=str,
         default="",
         help="Optional input/output filename suffix, e.g. _mmr_deterministic",
+    )
+    parser.add_argument(
+        "--normalization_scope",
+        type=str,
+        choices=("legacy", "all-settings"),
+        default="legacy",
+        help=(
+            "Normalization denominator scope. "
+            "legacy = max(current retriever across requested alphas, gold alpha_8). "
+            "all-settings = max utility across all raw result files under experiment_results/<generator>/lamp<lamp_num>."
+        ),
     )
     args = parser.parse_args()
 

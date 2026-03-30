@@ -1,0 +1,5 @@
+timestamp,query_count,total_queries,new_this_run,retriever,alpha,suffix,run_tag,mean_ee_d,mean_ee_r,mean_eu
+2026-03-29T20:54:45,140,833,10,gold,1,_mmr_on_gold_deterministic,balanced,1.000000,0.988003,0.082688
+2026-03-29T21:03:51,150,833,20,gold,1,_mmr_on_gold_deterministic,balanced,1.000000,0.988803,0.082437
+2026-03-29T21:12:51,160,833,30,gold,1,_mmr_on_gold_deterministic,balanced,1.000000,0.989503,0.080554
+2026-03-29T21:22:00,170,833,40,gold,1,_mmr_on_gold_deterministic,balanced,1.000000,0.990108,0.080120

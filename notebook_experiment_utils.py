@@ -15,7 +15,9 @@ import shutil
 import subprocess
 import sys
 from typing import Iterable
+import math
 
+import numpy as np
 import pandas as pd
 
 
@@ -57,7 +59,15 @@ def resolve_python_executable(root: Path) -> Path:
     """Resolve a Python executable path that works across Linux/macOS/Windows."""
     candidates: list[Path] = []
 
-    # Prefer the active notebook/kernel interpreter first.
+    # Prefer project-local virtual environments first for reproducibility.
+    candidates.extend(
+        [
+            root / ".venv" / "bin" / "python",
+            root / ".venv" / "Scripts" / "python.exe",
+        ]
+    )
+
+    # Fall back to the active notebook/kernel interpreter.
     candidates.append(Path(sys.executable).resolve())
 
     venv_path = os.environ.get("VIRTUAL_ENV")
@@ -69,13 +79,6 @@ def resolve_python_executable(root: Path) -> Path:
                 venv_root / "Scripts" / "python.exe",
             ]
         )
-
-    candidates.extend(
-        [
-            root / ".venv" / "bin" / "python",
-            root / ".venv" / "Scripts" / "python.exe",
-        ]
-    )
 
     for cmd in ("python3", "python"):
         resolved = shutil.which(cmd)
@@ -134,6 +137,174 @@ def _run_cmd(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=args, returncode=return_code, stdout=combined_output)
 
 
+def _retrieval_results_path(cfg: ExperimentConfig, retriever_name: str) -> Path:
+    return (
+        cfg.root
+        / "retrieval"
+        / "retrieval_results"
+        / cfg.generator_name
+        / retriever_name
+        / f"{cfg.lamp_num}.json"
+    )
+
+
+def _ensure_retrieval_results(cfg: ExperimentConfig, retriever_name: str) -> None:
+    """Ensure deterministic retrieval artifacts exist before running experiment.py."""
+    fp = _retrieval_results_path(cfg, retriever_name)
+    if fp.exists():
+        return
+
+    print(f"[prep] missing retrieval file: {fp}")
+
+    if retriever_name == "bm25":
+        args = [
+            str(cfg.python_exe),
+            "retrieval/rank_profiles.py",
+            "--lamp_num",
+            str(cfg.lamp_num),
+            "--ranker",
+            "bm25",
+            "--generator_name",
+            cfg.generator_name,
+        ]
+        _run_cmd(args, cfg.root)
+    elif retriever_name == "gold":
+        args = [
+            str(cfg.python_exe),
+            "retrieval/gold_retriever.py",
+            "--lamp_num",
+            str(cfg.lamp_num),
+            "--generator_name",
+            cfg.generator_name,
+        ]
+        _run_cmd(args, cfg.root)
+    else:
+        raise FileNotFoundError(
+            f"Missing retrieval file {fp}. "
+            "Auto-precompute is supported for retrievers: bm25, gold."
+        )
+
+    if not fp.exists():
+        raise FileNotFoundError(f"Retrieval precompute completed but file is still missing: {fp}")
+
+
+def find_degenerate_score_qids(
+    cfg: ExperimentConfig,
+    retriever_name: str | None = None,
+    split_type: str = "user",
+    max_queries: int | None = None,
+) -> list[str]:
+    """Return qids whose retriever scores collapse to a degenerate min-max denominator.
+
+    These are qids that previously could emit RuntimeWarning during score normalization.
+    """
+    name = retriever_name or cfg.retriever_name
+    source_retriever = cfg.mmr_base_retriever if name == "mmr" else name
+
+    retrieval_fp = _retrieval_results_path(cfg, source_retriever)
+    if not retrieval_fp.exists():
+        _ensure_retrieval_results(cfg, source_retriever)
+
+    with retrieval_fp.open("r", encoding="utf-8") as f:
+        retrieval_results: dict = json.load(f)
+
+    lamp_dir_candidates = [
+        cfg.root / "data" / f"lamp_utility_labels_{cfg.generator_name}",
+        cfg.root / "data" / "lamp_utility_labels",
+    ]
+    lamp_dir = next((d for d in lamp_dir_candidates if d.exists()), None)
+    if lamp_dir is None:
+        raise FileNotFoundError(
+            "Could not find a LaMP data directory under data/lamp_utility_labels*"
+        )
+
+    inputs_fp = lamp_dir / f"{cfg.lamp_num}_{split_type}_dev_inputs.json"
+    if not inputs_fp.exists():
+        raise FileNotFoundError(f"Input file not found: {inputs_fp}")
+
+    with inputs_fp.open("r", encoding="utf-8") as f:
+        inputs_data = json.load(f)
+
+    ordered_qids = [str(x["id"]) for x in inputs_data]
+    limit = cfg.max_queries if max_queries is None else max_queries
+    if limit is not None:
+        ordered_qids = ordered_qids[:limit]
+
+    bad_qids: list[str] = []
+    for qid in ordered_qids:
+        rows = retrieval_results.get(qid, [])
+        if not rows:
+            continue
+
+        scores = np.array([float(pid_score[1]) for pid_score in rows], dtype=float)
+        if scores.size == 0:
+            continue
+
+        min_value = float(scores.min())
+        if min_value < 0:
+            scores = scores - min_value
+
+        denom = float(scores.max() - scores.min())
+        if (not np.isfinite(denom)) or denom <= 0:
+            bad_qids.append(qid)
+
+    return bad_qids
+
+
+def find_invalid_result_qids(
+    cfg: ExperimentConfig,
+    retriever_name: str | None = None,
+    alphas: Iterable[int] | None = None,
+    output_suffix: str = "",
+) -> list[str]:
+    """Return qids that already have invalid EE/EU values in raw result files."""
+    name = retriever_name or cfg.retriever_name
+    alpha_values = tuple(alphas) if alphas is not None else tuple(cfg.alphas)
+
+    bad_qids: set[str] = set()
+    for alpha in alpha_values:
+        fp = raw_results_path(cfg, name, int(alpha), output_suffix=output_suffix)
+        if not fp.exists():
+            continue
+        with fp.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if not isinstance(data, dict):
+            continue
+
+        for qid, payload in data.items():
+            if not isinstance(payload, dict):
+                bad_qids.add(str(qid))
+                continue
+
+            ee = payload.get("EE", {}) or {}
+            eu = payload.get("EU", {}) or {}
+
+            ee_vals = [
+                ee.get("disparity", None),
+                ee.get("relevance", None),
+                ee.get("difference", None),
+            ]
+            eu_vals = list(eu.values()) if isinstance(eu, dict) else []
+            vals = ee_vals + eu_vals
+
+            invalid = False
+            for v in vals:
+                try:
+                    fv = float(v)
+                except Exception:
+                    invalid = True
+                    break
+                if not math.isfinite(fv):
+                    invalid = True
+                    break
+
+            if invalid:
+                bad_qids.add(str(qid))
+
+    return sorted(bad_qids)
+
+
 def run_experiment_for_alpha(
     cfg: ExperimentConfig,
     retriever_name: str,
@@ -141,6 +312,9 @@ def run_experiment_for_alpha(
     deterministic_ranking: bool = False,
     output_suffix: str = "",
 ) -> None:
+    retrieval_source = cfg.mmr_base_retriever if retriever_name == "mmr" else retriever_name
+    _ensure_retrieval_results(cfg, retrieval_source)
+
     out_fp = raw_results_path(cfg, retriever_name, alpha, output_suffix=output_suffix)
     if cfg.skip_existing and out_fp.exists():
         # Only skip if the existing file covers at least as many queries as requested.
@@ -214,6 +388,75 @@ def run_experiment_for_alpha(
     _run_cmd(args, cfg.root)
 
 
+def run_targeted_qids_for_alpha(
+    cfg: ExperimentConfig,
+    retriever_name: str,
+    alpha: int,
+    qids: Iterable[str],
+    deterministic_ranking: bool = False,
+    output_suffix: str = "",
+    recompute_target_qids: bool = True,
+) -> None:
+    """Recompute only selected qids and merge into existing alpha output."""
+    qid_list = [str(q).strip() for q in qids if str(q).strip()]
+    if not qid_list:
+        raise ValueError("run_targeted_qids_for_alpha requires at least one qid")
+
+    retrieval_source = cfg.mmr_base_retriever if retriever_name == "mmr" else retriever_name
+    _ensure_retrieval_results(cfg, retrieval_source)
+
+    qids_dir = cfg.root / "experiment_results" / "runs" / "target_qids"
+    qids_dir.mkdir(parents=True, exist_ok=True)
+    qids_fp = qids_dir / (
+        f"{retriever_name}_alpha{alpha}"
+        f"{output_suffix if output_suffix.startswith('_') or not output_suffix else '_' + output_suffix}"
+        "_qids.json"
+    )
+    with qids_fp.open("w", encoding="utf-8") as f:
+        json.dump({"qids": sorted(set(qid_list))}, f, indent=2)
+
+    n_samples = 1 if deterministic_ranking else cfg.n_samples
+
+    args = [
+        str(cfg.python_exe),
+        "experiment.py",
+        "--generator_name",
+        cfg.generator_name,
+        "--lamp_num",
+        str(cfg.lamp_num),
+        "--retriever_name",
+        retriever_name,
+        "--alpha",
+        str(alpha),
+        "--k",
+        str(cfg.k),
+        "--n_samples",
+        str(n_samples),
+        "--only_qids_file",
+        str(qids_fp),
+    ]
+    if recompute_target_qids:
+        args.append("--recompute_target_qids")
+    if deterministic_ranking:
+        args.append("--deterministic_ranking")
+    if retriever_name == "mmr":
+        args.extend(["--mmr_base_retriever", cfg.mmr_base_retriever])
+        args.extend(["--mmr_lambda", str(cfg.mmr_lambda)])
+    if output_suffix:
+        args.extend(["--output_suffix", output_suffix])
+    if cfg.max_queries is not None:
+        args.extend(["--max_queries", str(cfg.max_queries)])
+    if cfg.remove_temp_files:
+        args.append("--remove_temp_files")
+    if cfg.run_tag:
+        args.extend(["--run_tag", cfg.run_tag])
+    if cfg.print_interval is not None:
+        args.extend(["--print_interval", str(cfg.print_interval)])
+
+    print(f"[targeted] recomputing {len(set(qid_list))} qids via {qids_fp}")
+    _run_cmd(args, cfg.root)
+
+
 def run_gold_baseline(cfg: ExperimentConfig, alpha: int = 8) -> None:
     run_experiment_for_alpha(cfg, retriever_name="gold", alpha=alpha)
 
@@ -248,12 +491,27 @@ def run_mmr_deterministic(
     )
 
 
+def run_gold_deterministic_reference(
+    cfg: ExperimentConfig,
+    alpha: int = 1,
+    output_suffix: str = "_gold_deterministic",
+) -> None:
+    """Run deterministic gold ranking (no PL sampling) — oracle fairness sanity check."""
+    run_experiment_for_alpha(
+        cfg,
+        retriever_name="gold",
+        alpha=alpha,
+        deterministic_ranking=True,
+        output_suffix=output_suffix,
+    )
+
+
 def run_retriever_grid(cfg: ExperimentConfig) -> None:
     for alpha in cfg.alphas:
         run_experiment_for_alpha(cfg, retriever_name=cfg.retriever_name, alpha=alpha)
 
 
-def normalize_eu_grid(cfg: ExperimentConfig) -> None:
+def normalize_eu_grid(cfg: ExperimentConfig, normalization_scope: str = "all-settings") -> None:
     for alpha in cfg.alphas:
         out_fp = normalized_results_path(cfg, alpha)
         if cfg.skip_existing and out_fp.exists():
@@ -271,6 +529,8 @@ def normalize_eu_grid(cfg: ExperimentConfig) -> None:
             cfg.retriever_name,
             "--alpha",
             str(alpha),
+            "--normalization_scope",
+            normalization_scope,
         ]
         _run_cmd(args, cfg.root)
 
@@ -280,8 +540,14 @@ def normalize_eu_for_retriever(
     retriever_name: str,
     alpha: int,
     output_suffix: str = "",
+    normalization_scope: str = "all-settings",
 ) -> None:
-    """Normalize EU for a specific retriever and alpha (e.g., MMR deterministic)."""
+    """Normalize EU for a specific retriever and alpha.
+
+    normalization_scope:
+    - legacy: current retriever (requested alphas) plus gold alpha_8
+    - all-settings: any raw result file for the same generator/lamp
+    """
     base_path = (
         cfg.root
         / "experiment_results"
@@ -319,6 +585,8 @@ def normalize_eu_for_retriever(
         str(alpha),
         "--all_alphas",
         str(alpha),
+        "--normalization_scope",
+        normalization_scope,
     ]
     if suffix:
         args.extend(["--input_suffix", suffix])

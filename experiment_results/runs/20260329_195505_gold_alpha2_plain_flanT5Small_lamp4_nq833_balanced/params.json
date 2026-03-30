@@ -1,0 +1,18 @@
+{
+  "started_at": "2026-03-29T19:55:05",
+  "retriever": "gold",
+  "base_retriever": "gold",
+  "generator": "flanT5Small",
+  "lamp_num": 4,
+  "alpha": 2,
+  "output_suffix": "",
+  "run_tag": "balanced",
+  "max_queries": "833",
+  "k": 5,
+  "n_samples": 12,
+  "deterministic": false,
+  "mmr_lambda": null,
+  "checkpoint_interval": 10,
+  "output_file": "/Users/asimk/Code/Fair-RAG/experiment_results/flanT5Small/lamp4/gold/alpha_2.json",
+  "completed_at": null
+}

@@ -19,6 +19,21 @@ from sparsembed import model, retrieve
 CUR_DIR_PATH = os.path.dirname(os.path.realpath(__file__))
 
 
+# Device detection for cross-platform support (CUDA > MPS > CPU)
+def get_device():
+    """Returns appropriate device: CUDA > MPS > CPU"""
+    if torch.cuda.is_available():
+        return torch.device("cuda:0")
+    elif torch.backends.mps.is_available():
+        return torch.device("mps")
+    else:
+        return torch.device("cpu")
+
+
+DEVICE = get_device()
+DEVICE_STR = str(DEVICE).split("(")[1].rstrip(")")  # Convert "device(mps)" to "mps"
+
+
 def extract_strings_between_quotes(input_string):
     output_list = []
     inside_quotes = False
@@ -211,7 +226,7 @@ def retrieve_top_k_with_contriver(
     """
     query_tokens = tokenizer(
         [query], padding=True, truncation=True, return_tensors="pt"
-    ).to("cuda:0")
+    ).to(DEVICE)
     output_query = contriver(**query_tokens)
     output_query = mean_pooling(
         output_query.last_hidden_state, query_tokens["attention_mask"]
@@ -221,7 +236,7 @@ def retrieve_top_k_with_contriver(
     for batch in batched_corpus:
         tokens_batch = tokenizer(
             batch, padding=True, truncation=True, return_tensors="pt"
-        ).to("cuda:0")
+        ).to(DEVICE)
         outputs_batch = contriver(**tokens_batch)
         outputs_batch = mean_pooling(
             outputs_batch.last_hidden_state, tokens_batch["attention_mask"]
@@ -356,7 +371,7 @@ if __name__ == "__main__":
         if RANKER == "contriever":
             tokenizer = AutoTokenizer.from_pretrained(args.contriever_checkpoint)
             contriver = AutoModel.from_pretrained(args.contriever_checkpoint).to(
-                "cuda:0"
+                DEVICE
             )
             contriver.eval()
             randked_profile = retrieve_top_k_with_contriver(
@@ -365,10 +380,10 @@ if __name__ == "__main__":
         elif RANKER == "splade":
             splade_model = model.Splade(
                 model=AutoModelForMaskedLM.from_pretrained(args.splade_checkpoint).to(
-                    "cuda:0"
+                    DEVICE
                 ),
                 tokenizer=AutoTokenizer.from_pretrained(args.splade_checkpoint),
-                device="cuda:0",
+                device=DEVICE_STR,
             )
 
             randked_profile = retrieve_top_k_with_splade(
