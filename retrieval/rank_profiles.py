@@ -31,7 +31,12 @@ def get_device():
 
 
 DEVICE = get_device()
-DEVICE_STR = str(DEVICE).split("(")[1].rstrip(")")  # Convert "device(mps)" to "mps"
+# Convert device object to string (e.g., "device(mps)" to "mps", or "cpu" stays "cpu")
+device_str_full = str(DEVICE)
+if "(" in device_str_full:
+    DEVICE_STR = device_str_full.split("(")[1].rstrip(")")
+else:
+    DEVICE_STR = device_str_full
 
 
 def extract_strings_between_quotes(input_string):
