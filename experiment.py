@@ -52,6 +52,7 @@ from data.lamp_handler import LaMPHandler
 from expected_exposure import expeval
 from generator.lm import PromptLM
 from generator.lm_distributed_inference import PromptLMDistributedInference
+from generator.lm_mlx import PromptLMMLX
 import logging
 
 
@@ -336,7 +337,10 @@ def main(args):
     aip_func = lamp_handler.get_aip_func(lamp_num=LAMP_NUM)
     inputs_file_iterator = lamp_handler.get_inputs_file_iterator(lamp_number=LAMP_NUM)
     outputs_file_iterator = lamp_handler.get_outputs_file_iterator(lamp_number=LAMP_NUM)
-    if args.multi_gpus:
+    model_backend = models_info[GENERATOR_NAME].get("backend", "hf")
+    if model_backend == "mlx":
+        qa_model = PromptLMMLX(model_name=GENERATOR_NAME)
+    elif args.multi_gpus:
         qa_model = PromptLMDistributedInference(model_name=GENERATOR_NAME)
     else:
         qa_model = PromptLM(model_name=GENERATOR_NAME)

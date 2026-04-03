@@ -9,14 +9,21 @@ models_info = {
     "flanT5XXL": {
         "model_id": "google/flan-t5-xxl",
         "hf_pipeline_task": "text2text-generation",
+        "backend": "hf",
     },
     "flanT5Base": {
         "model_id": "google/flan-t5-base",
         "hf_pipeline_task": "text2text-generation",
+        "backend": "hf",
     },
     "flanT5Small": {
         "model_id": "google/flan-t5-small",
         "hf_pipeline_task": "text2text-generation",
+        "backend": "hf",
+    },
+    "lfm25MLX350M4bit": {
+        "model_id": "LiquidAI/LFM2.5-350M-MLX-4bit",
+        "backend": "mlx",
     },
 }
 
