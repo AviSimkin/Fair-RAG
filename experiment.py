@@ -29,7 +29,9 @@ import numpy as np
 import json
 import re
 from datetime import datetime
+from pathlib import Path
 from transformers import AutoTokenizer
+from huggingface_hub import snapshot_download
 
 # Suppress non-critical warnings to reduce output noise
 warnings.filterwarnings('ignore', category=FutureWarning, message='.*resume_download.*')
@@ -217,7 +219,42 @@ def main(args):
     LAMP_NUM: int = args.lamp_num
     SPLIT_TYPE = args.lamp_split_type
     GENERATOR_NAME = args.generator_name
-    TOKENIZER = AutoTokenizer.from_pretrained(models_info[GENERATOR_NAME]["model_id"])
+    model_info = models_info[GENERATOR_NAME]
+    model_backend = model_info.get("backend", "hf")
+    model_id = model_info["model_id"]
+    model_kwargs = model_info.get("model_kwargs", {})
+    allow_hf_download = bool(model_kwargs.get("allow_hf_download", False))
+
+    tokenizer_source = model_id
+    if model_backend == "mlx":
+        direct_path = Path(model_id)
+        if direct_path.exists():
+            tokenizer_source = str(direct_path)
+        else:
+            try:
+                tokenizer_source = str(
+                    snapshot_download(
+                        model_id,
+                        local_files_only=(not allow_hf_download),
+                    )
+                )
+            except Exception as exc:
+                raise FileNotFoundError(
+                    f"Model/tokenizer {model_id} is not available in local cache. "
+                    "Download it once or set allow_hf_download=True."
+                ) from exc
+    else:
+        # Prefer local cache to avoid unnecessary HF Hub requests/warnings.
+        try:
+            tokenizer_source = str(snapshot_download(model_id, local_files_only=True))
+        except Exception:
+            tokenizer_source = model_id
+
+    tokenizer_local_only = bool(model_backend == "mlx" and not allow_hf_download)
+    TOKENIZER = AutoTokenizer.from_pretrained(
+        tokenizer_source,
+        local_files_only=tokenizer_local_only,
+    )
     # Use conservative token limit (20% buffer) to prevent overflow errors during tokenization
     TOKENIZER_MAX_LEN = max(1, int(TOKENIZER.model_max_length * 0.8))
     RETRIEVER_NAME = args.retriever_name  # deterministic retriever
@@ -300,6 +337,7 @@ def main(args):
         "only_qids_file": args.only_qids_file or None,
         "recompute_target_qids": bool(args.recompute_target_qids),
         "output_file": EXP_RESULTS_FP,
+        "llm_outputs_file": None,
         "completed_at": None,
     }
     with open(os.path.join(RUN_LOG_DIR, "params.json"), "w") as _pf:
@@ -314,6 +352,14 @@ def main(args):
     with open(PROGRESS_CSV_FP, "w", newline="") as _pcsv:
         csv.writer(_pcsv).writerow(_PROGRESS_HEADER)
     print(f"[run-log] {RUN_LOG_DIR}", flush=True)
+
+    LLM_OUTPUTS_FP = None
+    if args.save_llm_outputs:
+        LLM_OUTPUTS_FP = os.path.join(RUN_LOG_DIR, "llm_outputs.jsonl")
+        _params_obj["llm_outputs_file"] = LLM_OUTPUTS_FP
+        with open(os.path.join(RUN_LOG_DIR, "params.json"), "w") as _pf:
+            json.dump(_params_obj, _pf, indent=2)
+        print(f"[run-log] llm outputs will be saved to {LLM_OUTPUTS_FP}", flush=True)
 
     RETRIEVAL_RESULTS_FP = os.path.join(
         CUR_DIR_PATH,
@@ -331,15 +377,17 @@ def main(args):
     lamp_handler = LaMPHandler(
         lamp_dir_name=f"lamp_utility_labels_{GENERATOR_NAME}",
         split_type=SPLIT_TYPE,
-        tokenizer_model_name=models_info[GENERATOR_NAME]["model_id"],
+        tokenizer_model_name=tokenizer_source,
         k=K,
     )
     aip_func = lamp_handler.get_aip_func(lamp_num=LAMP_NUM)
     inputs_file_iterator = lamp_handler.get_inputs_file_iterator(lamp_number=LAMP_NUM)
     outputs_file_iterator = lamp_handler.get_outputs_file_iterator(lamp_number=LAMP_NUM)
-    model_backend = models_info[GENERATOR_NAME].get("backend", "hf")
     if model_backend == "mlx":
-        qa_model = PromptLMMLX(model_name=GENERATOR_NAME)
+        qa_model = PromptLMMLX(
+            model_name=GENERATOR_NAME,
+            model_kwargs=model_kwargs,
+        )
     elif args.multi_gpus:
         qa_model = PromptLMDistributedInference(model_name=GENERATOR_NAME)
     else:
@@ -570,6 +618,26 @@ def main(args):
         qid_results_map[qid]["max-utility"] = max(metric_scores)
         qid_results_map[qid]["min-utility"] = min(metric_scores)
 
+        if LLM_OUTPUTS_FP is not None:
+            llm_row = {
+                "qid": qid,
+                "question": entry_question,
+                "target": entry_target,
+                "retriever": RETRIEVER_NAME,
+                "base_retriever": base_retriever_name,
+                "alpha": ALPHA,
+                "output_suffix": output_suffix,
+                "deterministic": bool(force_deterministic),
+                "n_samples_requested": int(N_SAMPLES),
+                "n_samples_effective": int(effective_n_samples),
+                "predictions": preds,
+                "metric_name": metric_name,
+                "metric_scores": metric_scores,
+                "expected_utility": expected_utility,
+            }
+            with open(LLM_OUTPUTS_FP, "a", encoding="utf-8") as _lf:
+                _lf.write(json.dumps(llm_row, ensure_ascii=False) + "\n")
+
         # Update running averages and print progress every 10 queries
         _run_ee_d += ee_results.get("disparity", 0.0)
         _run_ee_r += ee_results.get("relevance", 0.0)
@@ -790,6 +858,14 @@ if __name__ == "__main__":
         help=(
             "When used with --only_qids_file, remove target qids from existing/checkpoint "
             "results before running so they are recomputed and merged back."
+        ),
+    )
+    parser.add_argument(
+        "--save_llm_outputs",
+        action="store_true",
+        help=(
+            "Persist raw per-query LLM outputs to experiment_results/runs/<run>/llm_outputs.jsonl "
+            "for later inspection or cleaning."
         ),
     )
     args = parser.parse_args()

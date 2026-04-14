@@ -1,0 +1,2 @@
+timestamp,query_count,total_queries,new_this_run,retriever,alpha,suffix,run_tag,mean_ee_d,mean_ee_r,mean_eu
+2026-04-04T12:07:18,5,5,5,bm25,1,plain,qwen35_quickcheck,0.580000,0.260000,0.018156

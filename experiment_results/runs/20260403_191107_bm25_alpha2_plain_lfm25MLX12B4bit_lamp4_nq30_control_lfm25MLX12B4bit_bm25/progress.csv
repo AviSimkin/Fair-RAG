@@ -1,0 +1,4 @@
+timestamp,query_count,total_queries,new_this_run,retriever,alpha,suffix,run_tag,mean_ee_d,mean_ee_r,mean_eu
+2026-04-03T19:11:45,10,30,10,bm25,2,plain,control_lfm25MLX12B4bit_bm25,0.254800,0.216111,0.028813
+2026-04-03T19:12:15,20,30,20,bm25,2,plain,control_lfm25MLX12B4bit_bm25,0.222400,0.176268,0.037305
+2026-04-03T19:12:46,30,30,30,bm25,2,plain,control_lfm25MLX12B4bit_bm25,0.197067,0.181944,0.035996

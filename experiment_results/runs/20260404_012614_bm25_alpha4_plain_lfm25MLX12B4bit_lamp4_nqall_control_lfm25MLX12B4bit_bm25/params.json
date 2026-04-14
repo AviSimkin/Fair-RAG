@@ -1,0 +1,21 @@
+{
+  "started_at": "2026-04-04T01:26:14",
+  "retriever": "bm25",
+  "base_retriever": "bm25",
+  "generator": "lfm25MLX12B4bit",
+  "lamp_num": 4,
+  "alpha": 4,
+  "output_suffix": "",
+  "run_tag": "control_lfm25MLX12B4bit_bm25",
+  "max_queries": "all",
+  "k": 5,
+  "n_samples": 12,
+  "deterministic": false,
+  "mmr_lambda": null,
+  "checkpoint_interval": 10,
+  "only_qids_file": null,
+  "recompute_target_qids": false,
+  "output_file": "/Users/asimk/Code/Fair-RAG/experiment_results/lfm25MLX12B4bit/lamp4/bm25/alpha_4.json",
+  "completed_at": "2026-04-04T02:26:54",
+  "total_queries_processed": 833
+}

@@ -38,6 +38,7 @@ class ExperimentConfig:
     mmr_lambda: float = 0.7
     run_tag: str = ""  # e.g. "balanced", "weak" — used in run-log folder names
     print_interval: int | None = None  # stdout print every N queries; None = same as checkpoint_interval
+    save_llm_outputs: bool = False
 
 
 def find_repo_root(start: Path | None = None) -> Path:
@@ -385,6 +386,8 @@ def run_experiment_for_alpha(
         args.extend(["--run_tag", cfg.run_tag])
     if cfg.print_interval is not None:
         args.extend(["--print_interval", str(cfg.print_interval)])
+    if cfg.save_llm_outputs:
+        args.append("--save_llm_outputs")
     _run_cmd(args, cfg.root)
 
 
@@ -452,6 +455,8 @@ def run_targeted_qids_for_alpha(
         args.extend(["--run_tag", cfg.run_tag])
     if cfg.print_interval is not None:
         args.extend(["--print_interval", str(cfg.print_interval)])
+    if cfg.save_llm_outputs:
+        args.append("--save_llm_outputs")
 
     print(f"[targeted] recomputing {len(set(qid_list))} qids via {qids_fp}")
     _run_cmd(args, cfg.root)

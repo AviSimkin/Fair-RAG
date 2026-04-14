@@ -1,10 +1,11 @@
-torch==2.1.2
-mlx==0.31.1
-mlx-lm==0.31.1
+torch==2.4.1
+mlx-lm
+mlx @ git+https://github.com/PrismML-Eng/mlx.git@prism
 numpy==1.26.4
 sentence-transformers==2.2.2
-transformers==4.36.2
+transformers==5.5.0
 accelerate==0.27.2
+matplotlib==3.10.8
 langchain==0.1.1
 langchain-community==0.0.13
 langchain-core==0.1.11

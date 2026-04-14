@@ -1,0 +1,21 @@
+{
+  "started_at": "2026-04-03T12:12:08",
+  "retriever": "gold",
+  "base_retriever": "gold",
+  "generator": "flanT5Base",
+  "lamp_num": 4,
+  "alpha": 8,
+  "output_suffix": "",
+  "run_tag": "weak_flanT5Base_bm25",
+  "max_queries": "30",
+  "k": 5,
+  "n_samples": 10,
+  "deterministic": false,
+  "mmr_lambda": null,
+  "checkpoint_interval": 10,
+  "only_qids_file": null,
+  "recompute_target_qids": false,
+  "output_file": "/Users/asimk/Code/Fair-RAG/experiment_results/flanT5Base/lamp4/gold/alpha_8.json",
+  "completed_at": "2026-04-03T12:23:04",
+  "total_queries_processed": 30
+}

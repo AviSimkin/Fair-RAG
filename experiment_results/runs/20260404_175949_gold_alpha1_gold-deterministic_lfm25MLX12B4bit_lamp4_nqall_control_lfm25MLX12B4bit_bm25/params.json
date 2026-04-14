@@ -1,0 +1,21 @@
+{
+  "started_at": "2026-04-04T17:59:49",
+  "retriever": "gold",
+  "base_retriever": "gold",
+  "generator": "lfm25MLX12B4bit",
+  "lamp_num": 4,
+  "alpha": 1,
+  "output_suffix": "_gold_deterministic",
+  "run_tag": "control_lfm25MLX12B4bit_bm25",
+  "max_queries": "all",
+  "k": 5,
+  "n_samples": 1,
+  "deterministic": true,
+  "mmr_lambda": null,
+  "checkpoint_interval": 10,
+  "only_qids_file": null,
+  "recompute_target_qids": false,
+  "output_file": "/Users/asimk/Code/Fair-RAG/experiment_results/lfm25MLX12B4bit/lamp4/gold/alpha_1_gold_deterministic.json",
+  "completed_at": "2026-04-04T18:05:23",
+  "total_queries_processed": 833
+}

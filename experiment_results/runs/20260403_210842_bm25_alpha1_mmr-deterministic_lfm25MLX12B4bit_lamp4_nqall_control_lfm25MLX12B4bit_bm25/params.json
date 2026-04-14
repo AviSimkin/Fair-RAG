@@ -1,0 +1,21 @@
+{
+  "started_at": "2026-04-03T21:08:42",
+  "retriever": "mmr",
+  "base_retriever": "bm25",
+  "generator": "lfm25MLX12B4bit",
+  "lamp_num": 4,
+  "alpha": 1,
+  "output_suffix": "_mmr_deterministic",
+  "run_tag": "control_lfm25MLX12B4bit_bm25",
+  "max_queries": "all",
+  "k": 5,
+  "n_samples": 1,
+  "deterministic": true,
+  "mmr_lambda": 0.6,
+  "checkpoint_interval": 10,
+  "only_qids_file": null,
+  "recompute_target_qids": false,
+  "output_file": "/Users/asimk/Code/Fair-RAG/experiment_results/lfm25MLX12B4bit/lamp4/mmr/alpha_1_mmr_deterministic.json",
+  "completed_at": "2026-04-03T23:10:28",
+  "total_queries_processed": 833
+}

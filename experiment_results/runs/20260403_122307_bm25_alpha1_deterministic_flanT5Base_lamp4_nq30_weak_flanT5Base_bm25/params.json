@@ -1,0 +1,21 @@
+{
+  "started_at": "2026-04-03T12:23:07",
+  "retriever": "bm25",
+  "base_retriever": "bm25",
+  "generator": "flanT5Base",
+  "lamp_num": 4,
+  "alpha": 1,
+  "output_suffix": "_deterministic",
+  "run_tag": "weak_flanT5Base_bm25",
+  "max_queries": "30",
+  "k": 5,
+  "n_samples": 1,
+  "deterministic": true,
+  "mmr_lambda": null,
+  "checkpoint_interval": 10,
+  "only_qids_file": null,
+  "recompute_target_qids": false,
+  "output_file": "/Users/asimk/Code/Fair-RAG/experiment_results/flanT5Base/lamp4/bm25/alpha_1_deterministic.json",
+  "completed_at": "2026-04-03T12:24:10",
+  "total_queries_processed": 30
+}

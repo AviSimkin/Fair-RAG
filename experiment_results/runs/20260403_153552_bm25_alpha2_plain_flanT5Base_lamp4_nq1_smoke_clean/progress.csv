@@ -1,0 +1,2 @@
+timestamp,query_count,total_queries,new_this_run,retriever,alpha,suffix,run_tag,mean_ee_d,mean_ee_r,mean_eu
+2026-04-03T15:35:57,1,1,1,bm25,2,plain,smoke_clean,0.456000,0.460000,0.000000

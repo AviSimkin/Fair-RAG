@@ -1,0 +1,21 @@
+{
+  "started_at": "2026-04-04T12:06:43",
+  "retriever": "bm25",
+  "base_retriever": "bm25",
+  "generator": "qwen35MLX4B4bit",
+  "lamp_num": 4,
+  "alpha": 1,
+  "output_suffix": "",
+  "run_tag": "qwen35_quickcheck",
+  "max_queries": "5",
+  "k": 5,
+  "n_samples": 2,
+  "deterministic": false,
+  "mmr_lambda": null,
+  "checkpoint_interval": 10,
+  "only_qids_file": null,
+  "recompute_target_qids": false,
+  "output_file": "/Users/asimk/Code/Fair-RAG/experiment_results/qwen35MLX4B4bit/lamp4/bm25/alpha_1.json",
+  "completed_at": "2026-04-04T12:07:18",
+  "total_queries_processed": 5
+}

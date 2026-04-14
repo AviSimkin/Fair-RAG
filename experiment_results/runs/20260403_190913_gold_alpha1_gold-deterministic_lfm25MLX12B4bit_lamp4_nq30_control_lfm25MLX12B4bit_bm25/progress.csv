@@ -1,0 +1,4 @@
+timestamp,query_count,total_queries,new_this_run,retriever,alpha,suffix,run_tag,mean_ee_d,mean_ee_r,mean_eu
+2026-04-03T19:09:18,10,30,10,gold,1,_gold_deterministic,control_lfm25MLX12B4bit_bm25,1.000000,0.992116,0.066597
+2026-04-03T19:09:21,20,30,20,gold,1,_gold_deterministic,control_lfm25MLX12B4bit_bm25,1.000000,0.992228,0.061101
+2026-04-03T19:09:25,30,30,30,gold,1,_gold_deterministic,control_lfm25MLX12B4bit_bm25,1.000000,0.994427,0.049098

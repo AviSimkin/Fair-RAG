@@ -1,0 +1,22 @@
+{
+  "started_at": "2026-04-06T14:15:22",
+  "retriever": "bm25",
+  "base_retriever": "bm25",
+  "generator": "flanT5Small",
+  "lamp_num": 2,
+  "alpha": 1,
+  "output_suffix": "",
+  "run_tag": "control_flanT5Small_bm25_lamp2",
+  "max_queries": "all",
+  "k": 5,
+  "n_samples": 10,
+  "deterministic": false,
+  "mmr_lambda": null,
+  "checkpoint_interval": 10,
+  "only_qids_file": null,
+  "recompute_target_qids": false,
+  "output_file": "/Users/asimk/Code/Fair-RAG/experiment_results/flanT5Small/lamp2/bm25/alpha_1.json",
+  "llm_outputs_file": "/Users/asimk/Code/Fair-RAG/experiment_results/runs/20260406_141522_bm25_alpha1_plain_flanT5Small_lamp2_nqall_control_flanT5Small_bm25_lamp2/llm_outputs.jsonl",
+  "completed_at": "2026-04-06T14:32:26",
+  "total_queries_processed": 192
+}

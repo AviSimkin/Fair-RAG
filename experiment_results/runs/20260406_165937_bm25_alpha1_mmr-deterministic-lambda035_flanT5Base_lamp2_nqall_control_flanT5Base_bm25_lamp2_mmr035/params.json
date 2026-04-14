@@ -1,0 +1,22 @@
+{
+  "started_at": "2026-04-06T16:59:37",
+  "retriever": "mmr",
+  "base_retriever": "bm25",
+  "generator": "flanT5Base",
+  "lamp_num": 2,
+  "alpha": 1,
+  "output_suffix": "_mmr_deterministic_lambda035",
+  "run_tag": "control_flanT5Base_bm25_lamp2_mmr035",
+  "max_queries": "all",
+  "k": 5,
+  "n_samples": 1,
+  "deterministic": true,
+  "mmr_lambda": 0.35,
+  "checkpoint_interval": 10,
+  "only_qids_file": null,
+  "recompute_target_qids": false,
+  "output_file": "/Users/asimk/Code/Fair-RAG/experiment_results/flanT5Base/lamp2/mmr/alpha_1_mmr_deterministic_lambda035.json",
+  "llm_outputs_file": "/Users/asimk/Code/Fair-RAG/experiment_results/runs/20260406_165937_bm25_alpha1_mmr-deterministic-lambda035_flanT5Base_lamp2_nqall_control_flanT5Base_bm25_lamp2_mmr035/llm_outputs.jsonl",
+  "completed_at": "2026-04-06T17:01:42",
+  "total_queries_processed": 192
+}

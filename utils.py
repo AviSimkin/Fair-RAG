@@ -21,9 +21,20 @@ models_info = {
         "hf_pipeline_task": "text2text-generation",
         "backend": "hf",
     },
-    "lfm25MLX350M4bit": {
-        "model_id": "LiquidAI/LFM2.5-350M-MLX-4bit",
+    "lfm25MLX12B4bit": {
+        "model_id": "LiquidAI/LFM2.5-1.2B-Instruct-MLX-4bit",
         "backend": "mlx",
+        "model_kwargs": {"allow_hf_download": False},
+    },
+    "bonsai8BMLX1bit": {
+        "model_id": "prism-ml/Bonsai-8B-mlx-1bit",
+        "backend": "mlx",
+        "model_kwargs": {"allow_hf_download": False},
+    },
+    "qwen35MLX4B4bit": {
+        "model_id": "mlx-community/Qwen3.5-4B-MLX-4bit",
+        "backend": "mlx",
+        "model_kwargs": {"allow_hf_download": False},
     },
 }
 

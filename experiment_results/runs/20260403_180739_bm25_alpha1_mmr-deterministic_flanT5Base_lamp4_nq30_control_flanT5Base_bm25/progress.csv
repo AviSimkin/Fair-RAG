@@ -1,0 +1,4 @@
+timestamp,query_count,total_queries,new_this_run,retriever,alpha,suffix,run_tag,mean_ee_d,mean_ee_r,mean_eu
+2026-04-03T18:08:01,10,30,10,bm25,1,_mmr_deterministic,control_flanT5Base_bm25,1.000000,0.140000,0.022042
+2026-04-03T18:08:25,20,30,20,bm25,1,_mmr_deterministic,control_flanT5Base_bm25,1.000000,0.134043,0.023701
+2026-04-03T18:08:46,30,30,30,bm25,1,_mmr_deterministic,control_flanT5Base_bm25,1.000000,0.176028,0.027129

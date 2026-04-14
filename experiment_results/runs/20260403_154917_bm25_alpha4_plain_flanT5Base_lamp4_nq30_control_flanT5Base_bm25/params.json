@@ -1,0 +1,21 @@
+{
+  "started_at": "2026-04-03T15:49:17",
+  "retriever": "bm25",
+  "base_retriever": "bm25",
+  "generator": "flanT5Base",
+  "lamp_num": 4,
+  "alpha": 4,
+  "output_suffix": "",
+  "run_tag": "control_flanT5Base_bm25",
+  "max_queries": "30",
+  "k": 5,
+  "n_samples": 10,
+  "deterministic": false,
+  "mmr_lambda": null,
+  "checkpoint_interval": 10,
+  "only_qids_file": null,
+  "recompute_target_qids": false,
+  "output_file": "/Users/asimk/Code/Fair-RAG/experiment_results/flanT5Base/lamp4/bm25/alpha_4.json",
+  "completed_at": "2026-04-03T15:57:45",
+  "total_queries_processed": 30
+}
