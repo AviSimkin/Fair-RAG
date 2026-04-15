@@ -17,6 +17,22 @@ experiment_results/
 *.log
 *.err
 
+# local environment / secrets
+.env
+.env.*
+
+# local model cache
+.hf_cache/
+
+# local virtual environment
+.venv/
+
+# local run outputs
+experiment_runs/
+
+# macOS metadata
+.DS_Store
+
 # Jupyter Notebook
 .ipynb_checkpoints
 

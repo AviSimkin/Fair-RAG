@@ -7,6 +7,8 @@ from typing import List
 from sys import exit
 from data.data_utils import wget_file_to_dir
 from transformers import AutoTokenizer
+
+from hf_runtime import from_pretrained_kwargs
 from utils import trim_sentence_by_token_len, get_tokenized_length
 
 
@@ -26,7 +28,10 @@ class LaMPHandler:
         self.split_type: str = split_type
         self.K: int = k
         if tokenizer_model_name is not None:
-            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_model_name)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                tokenizer_model_name,
+                **from_pretrained_kwargs(),
+            )
             self.TOKENIZER_MAX_LENGTH = self.tokenizer.model_max_length
             self.l_bar = 256
 
