@@ -11,6 +11,7 @@ from framework.config import (
 )
 from framework.runner import ExperimentRunner
 from framework.batch import BatchExperimentRunner
+from framework.artifacts import RunRegistry
 from framework.cross_run_analysis import (
 	build_macro_comparison_rows,
 	build_query_metric_rows,
@@ -29,6 +30,7 @@ __all__ = [
 	"setting_id",
 	"ExperimentRunner",
 	"BatchExperimentRunner",
+	"RunRegistry",
 	"build_macro_comparison_rows",
 	"build_query_metric_rows",
 	"list_run_dirs",

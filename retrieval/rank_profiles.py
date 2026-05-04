@@ -203,7 +203,7 @@ def mean_pooling(token_embeddings, mask):
 
 
 def retrieve_top_k_with_contriver(
-    contriver, tokenizer, corpus, profile, query, k, batch_size=16
+    contriver, tokenizer, corpus, profile, query, k, batch_size=16, device="cpu"
 ) -> list[tuple]:
     """
     Returns list of tuples.
@@ -211,21 +211,23 @@ def retrieve_top_k_with_contriver(
     """
     query_tokens = tokenizer(
         [query], padding=True, truncation=True, return_tensors="pt"
-    ).to("cuda:0")
-    output_query = contriver(**query_tokens)
-    output_query = mean_pooling(
-        output_query.last_hidden_state, query_tokens["attention_mask"]
-    )
+    ).to(device)
+    with torch.no_grad():
+        output_query = contriver(**query_tokens)
+        output_query = mean_pooling(
+            output_query.last_hidden_state, query_tokens["attention_mask"]
+        )
     scores = []
     batched_corpus = batchify(corpus, batch_size)
     for batch in batched_corpus:
         tokens_batch = tokenizer(
             batch, padding=True, truncation=True, return_tensors="pt"
-        ).to("cuda:0")
-        outputs_batch = contriver(**tokens_batch)
-        outputs_batch = mean_pooling(
-            outputs_batch.last_hidden_state, tokens_batch["attention_mask"]
-        )
+        ).to(device)
+        with torch.no_grad():
+            outputs_batch = contriver(**tokens_batch)
+            outputs_batch = mean_pooling(
+                outputs_batch.last_hidden_state, tokens_batch["attention_mask"]
+            )
         temp_scores = output_query.squeeze() @ outputs_batch.T
         scores.extend(temp_scores.tolist())
     topk_values, topk_indices = torch.topk(torch.tensor(scores), k)
@@ -302,6 +304,12 @@ if __name__ == "__main__":
     IS_SPLADE: bool = RANKER == "splade"
     GENERATOR_NAME = args.generator_name
     BATCH_SIZE: int = args.batch_size
+    if torch.cuda.is_available():
+        device = "cuda:0"
+    elif torch.backends.mps.is_available():
+        device = "mps"
+    else:
+        device = "cpu"
     INPUT_DATA_FP = os.path.join(
         os.path.dirname(CUR_DIR_PATH),
         "data",
@@ -318,6 +326,23 @@ if __name__ == "__main__":
         dataset = json.load(file)
 
     rank_dict = dict()
+
+    contriver = None
+    contriever_tokenizer = None
+    splade_model = None
+    if RANKER == "contriever":
+        contriever_tokenizer = AutoTokenizer.from_pretrained(args.contriever_checkpoint)
+        contriver = AutoModel.from_pretrained(args.contriever_checkpoint).to(device)
+        contriver.eval()
+    elif RANKER == "splade":
+        tokenizer = AutoTokenizer.from_pretrained(args.splade_checkpoint)
+        if not hasattr(tokenizer, "batch_encode_plus"):
+            tokenizer.batch_encode_plus = tokenizer.__call__
+        splade_model = model.Splade(
+            model=AutoModelForMaskedLM.from_pretrained(args.splade_checkpoint).to(device),
+            tokenizer=tokenizer,
+            device=device,
+        )
 
     for data in tqdm(dataset):
         inp = data["input"]
@@ -354,23 +379,17 @@ if __name__ == "__main__":
             raise Exception("LaMP number is between 1 and 7 inclusive")
 
         if RANKER == "contriever":
-            tokenizer = AutoTokenizer.from_pretrained(args.contriever_checkpoint)
-            contriver = AutoModel.from_pretrained(args.contriever_checkpoint).to(
-                "cuda:0"
-            )
-            contriver.eval()
             randked_profile = retrieve_top_k_with_contriver(
-                contriver, tokenizer, corpus, profile, query, len(profile), BATCH_SIZE
+                contriver,
+                contriever_tokenizer,
+                corpus,
+                profile,
+                query,
+                len(profile),
+                BATCH_SIZE,
+                device,
             )
         elif RANKER == "splade":
-            splade_model = model.Splade(
-                model=AutoModelForMaskedLM.from_pretrained(args.splade_checkpoint).to(
-                    "cuda:0"
-                ),
-                tokenizer=AutoTokenizer.from_pretrained(args.splade_checkpoint),
-                device="cuda:0",
-            )
-
             randked_profile = retrieve_top_k_with_splade(
                 splade_model, corpus, profile, query, len(profile), BATCH_SIZE
             )

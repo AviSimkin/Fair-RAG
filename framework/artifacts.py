@@ -27,6 +27,7 @@ import json
 import os
 import sys
 import time
+from copy import deepcopy
 from typing import Any, Dict, List, Optional, Set
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -39,6 +40,128 @@ _PER_LIST_FILE = "per_list_metrics.jsonl"
 _QUERY_SUMMARY_FILE = "query_summary.jsonl"
 _PROGRESS_FILE = "progress_reports.jsonl"
 _MANIFEST_FILE = "manifest.json"
+
+
+def experiment_runs_dir(base_dir: Optional[str] = None) -> str:
+    if base_dir is None:
+        base_dir = os.path.join(ROOT, "experiment_runs")
+    return base_dir
+
+
+def run_dir_exists(run_id: str, base_dir: Optional[str] = None) -> bool:
+    return os.path.isdir(make_run_dir(run_id, base_dir=base_dir))
+
+
+def comparable_config_dict(cfg_or_dict: Any) -> Dict[str, Any]:
+    """Return the config subset that defines experiment outputs, excluding runtime controls."""
+    if hasattr(cfg_or_dict, "to_dict"):
+        cfg_dict = cfg_or_dict.to_dict()
+    else:
+        cfg_dict = deepcopy(cfg_or_dict)
+
+    return {
+        "dataset": deepcopy(cfg_dict.get("dataset", {})),
+        "retrieval": deepcopy(cfg_dict.get("retrieval", {})),
+        "rerank": deepcopy(cfg_dict.get("rerank", {})),
+        "generation": deepcopy(cfg_dict.get("generation", {})),
+        "metrics": deepcopy(cfg_dict.get("metrics", {})),
+    }
+
+
+def _load_manifest_safe(run_dir: str) -> Optional[Dict[str, Any]]:
+    fp = os.path.join(run_dir, _MANIFEST_FILE)
+    if not os.path.exists(fp):
+        return None
+    try:
+        with open(fp, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _run_sort_key(run_info: Dict[str, Any]) -> tuple[str, str]:
+    manifest = run_info["manifest"]
+    updated_at = manifest.get("updated_at") or manifest.get("started_at") or ""
+    run_id = manifest.get("run_id") or os.path.basename(run_info["run_dir"])
+    return (updated_at, run_id)
+
+
+class RunRegistry:
+    """Discover previous runs for config-aware skipping and auto-resume."""
+
+    def __init__(self, base_dir: Optional[str] = None) -> None:
+        self.base_dir = experiment_runs_dir(base_dir)
+
+    def list_runs(self) -> List[Dict[str, Any]]:
+        if not os.path.isdir(self.base_dir):
+            return []
+
+        runs: List[Dict[str, Any]] = []
+        for name in os.listdir(self.base_dir):
+            run_dir = os.path.join(self.base_dir, name)
+            if not os.path.isdir(run_dir):
+                continue
+            if name == "batches":
+                continue
+            manifest = _load_manifest_safe(run_dir)
+            if manifest is None:
+                continue
+            runs.append({"run_dir": run_dir, "manifest": manifest})
+
+        runs.sort(key=_run_sort_key, reverse=True)
+        return runs
+
+    def matching_runs(self, cfg: Any, setting_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        target_config = comparable_config_dict(cfg)
+        target_setting_id = setting_id
+        matches: List[Dict[str, Any]] = []
+        for run_info in self.list_runs():
+            manifest = run_info["manifest"]
+            manifest_setting_id = manifest.get("setting_id")
+            if target_setting_id is not None and manifest_setting_id != target_setting_id:
+                continue
+            manifest_config = comparable_config_dict(manifest.get("config", {}))
+            if manifest_config != target_config:
+                continue
+            matches.append(run_info)
+        return matches
+
+    def find_latest_completed(self, cfg: Any, setting_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        for run_info in self.matching_runs(cfg, setting_id=setting_id):
+            if self._is_completed(run_info["manifest"]):
+                return run_info
+        return None
+
+    def find_latest_resumable(self, cfg: Any, setting_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        for run_info in self.matching_runs(cfg, setting_id=setting_id):
+            if self._is_resumable(run_info):
+                return run_info
+        return None
+
+    @staticmethod
+    def _is_completed(manifest: Dict[str, Any]) -> bool:
+        if manifest.get("status") != "completed":
+            return False
+        expected = manifest.get("expected_queries")
+        completed = manifest.get("n_queries_completed")
+        if expected is None or completed is None:
+            return True
+        return completed >= expected
+
+    @staticmethod
+    def _is_resumable(run_info: Dict[str, Any]) -> bool:
+        manifest = run_info["manifest"]
+        if RunRegistry._is_completed(manifest):
+            return False
+        if manifest.get("status") in {"running", "interrupted"}:
+            return True
+        if manifest.get("n_queries_completed", 0) > 0:
+            return True
+        for filename in (_QUERY_SUMMARY_FILE, _PER_LIST_FILE, _RETRIEVAL_FILE, _EE_FILE):
+            fp = os.path.join(run_info["run_dir"], filename)
+            if os.path.exists(fp) and os.path.getsize(fp) > 0:
+                return True
+        return False
 
 
 class ArtifactStore:

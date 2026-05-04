@@ -58,6 +58,10 @@ class DatasetHandler(ABC):
     def get_metric_fn(self) -> Tuple[str, Callable]:
         """Return ``(metric_name, metric_fn)`` for EU computation."""
 
+    @abstractmethod
+    def total_queries(self) -> int:
+        """Return the number of queries that will be processed for the current config."""
+
 
 # ---------------------------------------------------------------------------
 # LaMP adapter
@@ -168,6 +172,11 @@ class LaMPDataset(DatasetHandler):
             return "mae", get_metric_fn_mae()
         else:
             return "rouge-l", get_metric_fn_rouge_L()
+
+    def total_queries(self) -> int:
+        if self.num_queries is None:
+            return len(self._ordered_qids)
+        return min(self.num_queries, len(self._ordered_qids))
 
 
 # ---------------------------------------------------------------------------

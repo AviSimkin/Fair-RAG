@@ -22,11 +22,11 @@ Resume logic
 
 from __future__ import annotations
 
+import datetime
 import os
 import random
 import sys
 import time
-import datetime
 from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
@@ -35,60 +35,57 @@ import torch
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, ROOT)
 
-from transformers import AutoTokenizer
-
-from utils import models_info, trim_sentence_by_token_len
 from generator.lm import PromptLM
 from generator.lm_distributed_inference import PromptLMDistributedInference
+from utils import trim_sentence_by_token_len
 
+from framework.artifacts import ArtifactStore, make_run_dir, run_dir_exists
 from framework.config import RunConfig, setting_id as make_setting_id
-from framework.dataset import make_dataset, DatasetHandler
-from framework.retrieval import load_retrieval_results
-from framework.reranking import (
-    RetrievalList,
-    generate_pl_lists,
-    generate_mmr_list,
-    generate_deterministic_list,
-)
-from framework.artifacts import ArtifactStore, make_run_dir
+from framework.dataset import DatasetHandler, make_dataset
 from framework.metrics import (
+    compute_diversity,
     compute_ee,
     compute_eu_for_answer,
-    compute_diversity,
     profile_to_text,
     prompt_hash,
 )
-from hf_runtime import from_pretrained_kwargs
+from framework.reranking import (
+    RetrievalList,
+    generate_deterministic_list,
+    generate_mmr_list,
+    generate_pl_lists,
+)
+from framework.retrieval import load_retrieval_results
 
 
 class ExperimentRunner:
-    """
-    Stateful runner for one experiment configuration.
-
-    Usage
-    -----
-    ::
-        cfg = RunConfig(...)
-        runner = ExperimentRunner(cfg)
-        store  = runner.run()   # blocks; returns ArtifactStore on completion
-    """
+    """Stateful runner for one experiment configuration."""
 
     def __init__(self, cfg: RunConfig) -> None:
         self.cfg = cfg
         self._sid = make_setting_id(cfg)
 
-    # ------------------------------------------------------------------
-    # Public entrypoint
-    # ------------------------------------------------------------------
-
     def run(self) -> ArtifactStore:
         cfg = self.cfg
         self._seed_everything()
 
-        # --- 1. Setup artefact store ---------------------------------
+        if cfg.resume and cfg.run_id and not run_dir_exists(cfg.run_id):
+            raise FileNotFoundError(
+                f"Cannot resume run_id '{cfg.run_id}': run directory does not exist."
+            )
+
+        dataset: DatasetHandler = make_dataset(cfg)
+        expected_queries = dataset.total_queries()
+        retrieval_results: Dict = load_retrieval_results(
+            generator_name=cfg.generation.generator_name,
+            ranker=cfg.retrieval.ranker,
+            lamp_num=cfg.dataset.lamp_num,
+        )
+
         run_id = self._make_run_id()
         run_dir = make_run_dir(run_id)
         store = ArtifactStore(run_dir)
+        existing_manifest = store.get_manifest()
         store.update_manifest(
             run_id=run_id,
             setting_id=self._sid,
@@ -96,31 +93,27 @@ class ExperimentRunner:
             status="running",
             seed=cfg.rerank.seed,
             report_every_queries=cfg.checkpoint.report_every_queries,
-            started_at=datetime.datetime.now().isoformat(timespec="seconds"),
+            started_at=existing_manifest.get("started_at")
+            or datetime.datetime.now().isoformat(timespec="seconds"),
+            resumed_at=datetime.datetime.now().isoformat(timespec="seconds") if cfg.resume else None,
+            expected_queries=expected_queries,
+            n_queries_completed=existing_manifest.get("n_queries_completed", 0),
+            last_completed_qid=existing_manifest.get("last_completed_qid"),
+            last_seen_query_index=existing_manifest.get("last_seen_query_index", 0),
         )
         store.flush_manifest()
         print(f"Setting: {self._sid}")
 
-        # --- 2. Load dataset & retrieval results ---------------------
-        dataset: DatasetHandler = make_dataset(cfg)
-        retrieval_results: Dict = load_retrieval_results(
-            generator_name=cfg.generation.generator_name,
-            ranker=cfg.retrieval.ranker,
-            lamp_num=cfg.dataset.lamp_num,
-        )
-
-        # --- 3. Load LLM & tokenizer ---------------------------------
         llm = self._make_llm()
-        model_id = models_info[cfg.generation.generator_name]["model_id"]
-        tokenizer = AutoTokenizer.from_pretrained(model_id, **from_pretrained_kwargs())
-        tok_max_len = tokenizer.model_max_length
+        tokenizer = getattr(llm, "tokenizer", None)
+        if tokenizer is None:
+            raise RuntimeError("PromptLM must expose a tokenizer for prompt truncation")
+        tok_max_len = getattr(llm, "model_max_length", tokenizer.model_max_length)
 
-        # --- 4. Metric function & eval handles -----------------------
         metric_name, metric_fn = dataset.get_metric_fn()
         aip_func = dataset.get_aip_func()
         rel_fp = dataset.relevance_mapping_path()
 
-        # --- 5. Resume state  ----------------------------------------
         if cfg.resume:
             completed_units: Set[str] = store.get_completed_answer_units()
             ee_done_qids: Set[str] = store.get_ee_completed_qids()
@@ -137,8 +130,6 @@ class ExperimentRunner:
         metric_totals = self._init_metric_totals(query_summaries)
         report_interval = max(1, cfg.checkpoint.report_every_queries)
         queries_since_report = 0
-
-        # --- 6. Main loop  -------------------------------------------
         units_since_flush = 0
         n_queries_seen = 0
 
@@ -149,7 +140,6 @@ class ExperimentRunner:
                 print("[WARN] Missing retrieval results for one query; skipping.")
                 continue
 
-            # 6a. Retrieval lists (generate or reload) ----------------
             if cfg.resume and qid in saved_retrieval_qids:
                 retrieval_lists = self._reload_retrieval_lists(store, qid)
             else:
@@ -170,7 +160,6 @@ class ExperimentRunner:
                         sample_idx=rl.sample_idx,
                     )
 
-            # 6b. Expected Exposure -----------------------------------
             if cfg.metrics.compute_ee and qid not in ee_done_qids:
                 det_indices_per_list = [rl.det_indices for rl in retrieval_lists]
                 ee_res = compute_ee(
@@ -188,25 +177,21 @@ class ExperimentRunner:
                 )
                 ee_done_qids.add(qid)
 
-            # 6c. Per-list: LLM + EU + diversity ----------------------
             for rl in retrieval_lists:
                 unit_key = f"{qid}::{rl.list_id}"
                 if unit_key in completed_units:
                     continue
 
-                # Build prompt
                 top_profiles = dataset.find_profiles_by_pids(qid, rl.doc_ids)
                 raw_prompt = aip_func(question=question, profiles=top_profiles)
                 final_prompt = trim_sentence_by_token_len(
                     raw_prompt, tokenizer=tokenizer, max_tok_len=tok_max_len
                 )
 
-                # LLM inference
                 t0 = time.time()
                 answer = llm.answer_question(final_prompt=final_prompt).strip()
                 elapsed = time.time() - t0
 
-                # Guard against empty/whitespace-only predictions
                 if answer == "" or all(c in {".", " "} for c in answer):
                     answer = "<empty>"
 
@@ -220,12 +205,10 @@ class ExperimentRunner:
                     elapsed_s=elapsed,
                 )
 
-                # EU
                 eu_score: Optional[float] = None
                 if cfg.metrics.compute_eu and target:
                     eu_score = compute_eu_for_answer(answer, target, metric_fn)
 
-                # Diversity
                 ild_val: Optional[float] = None
                 jac_val: Optional[float] = None
                 if cfg.metrics.compute_diversity and top_profiles:
@@ -264,7 +247,11 @@ class ExperimentRunner:
                     summarized_qids.add(qid)
                     self._update_metric_totals(metric_totals, query_summary)
                     queries_since_report += 1
-                    store.update_manifest(n_queries_completed=len(summarized_qids))
+                    store.update_manifest(
+                        n_queries_completed=len(summarized_qids),
+                        last_completed_qid=qid,
+                        last_seen_query_index=n_queries_seen,
+                    )
 
                     if queries_since_report >= report_interval:
                         progress = self._build_progress_report(
@@ -287,8 +274,11 @@ class ExperimentRunner:
             store.append_progress_report(progress)
             self._print_progress_report(progress)
 
-        # --- 7. Finalise  -------------------------------------------
-        store.update_manifest(status="completed", n_queries_completed=len(summarized_qids))
+        store.update_manifest(
+            status="completed",
+            n_queries_completed=len(summarized_qids),
+            last_seen_query_index=n_queries_seen,
+        )
         store.flush_manifest()
         summary_fp = store.write_summary()
         macro_fp = store.write_macro_summary()
@@ -297,12 +287,7 @@ class ExperimentRunner:
         print(f"Macro summary: {macro_fp}")
         return store
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
     def _make_run_id(self) -> str:
-        """Generate a unique run identifier: <timestamp>_<setting_id>."""
         if self.cfg.run_id:
             return self.cfg.run_id
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -396,7 +381,6 @@ class ExperimentRunner:
         dataset: DatasetHandler,
         all_profiles: List[Dict],
     ) -> List[RetrievalList]:
-        """Dispatch to the configured re-ranking method."""
         cfg = self.cfg
         rr = cfg.rerank
 
@@ -412,7 +396,6 @@ class ExperimentRunner:
             )
 
         if rr.method == "mmr":
-            # Need profiles in the same order as the retrieval results
             pids_in_order = [p[0] for p in ret_for_qid]
             profiles_in_order = dataset.find_profiles_by_pids(qid, pids_in_order)
             return [
@@ -425,7 +408,6 @@ class ExperimentRunner:
                 )
             ]
 
-        # deterministic
         return [
             generate_deterministic_list(
                 retrieval_results_for_qid=ret_for_qid,
@@ -436,7 +418,6 @@ class ExperimentRunner:
 
     @staticmethod
     def _reload_retrieval_lists(store: ArtifactStore, qid: str) -> List[RetrievalList]:
-        """Reconstruct RetrievalList objects from saved JSONL records."""
         records = store.load_retrieval_lists_for_qid(qid)
         return [
             RetrievalList(

@@ -14,6 +14,9 @@ from hf_runtime import from_pretrained_kwargs
 hf_logging.set_verbosity_error()
 
 
+_MODEL_CACHE: dict[tuple[str, tuple[tuple[str, object], ...]], tuple[object, object, torch.device]] = {}
+
+
 class PromptLM:
     """
     model_name (str): model nickname. Can find from utils.complete_model_names
@@ -42,6 +45,14 @@ class PromptLM:
         self.tokenizer, self.model, self.device = self._initialize_model()
 
     def _initialize_model(self):
+        cache_key = (
+            self.model_name,
+            tuple(sorted(self.model_kwargs.items())),
+        )
+        cached = _MODEL_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
         if "T5" not in self.model_name:
             raise NotImplementedError
 
@@ -65,7 +76,13 @@ class PromptLM:
         )
         model.to(device)
         model.eval()
-        return tokenizer, model, device
+        loaded = (tokenizer, model, device)
+        _MODEL_CACHE[cache_key] = loaded
+        return loaded
+
+    @property
+    def model_max_length(self) -> int:
+        return self.tokenizer.model_max_length
 
     def _seed_everything(self) -> None:
         if self.seed is None:
