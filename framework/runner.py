@@ -54,6 +54,7 @@ from framework.reranking import (
     generate_deterministic_list,
     generate_mmr_list,
     generate_pl_lists,
+    generate_pl_mmr_lists,
 )
 from framework.retrieval import load_retrieval_results
 
@@ -407,6 +408,21 @@ class ExperimentRunner:
                     qid=qid,
                 )
             ]
+
+        if rr.method == "pl_mmr":
+            pids_in_order = [p[0] for p in ret_for_qid]
+            profiles_in_order = dataset.find_profiles_by_pids(qid, pids_in_order)
+            return generate_pl_mmr_lists(
+                retrieval_results_for_qid=ret_for_qid,
+                profiles_for_qid=profiles_in_order,
+                ranker=cfg.retrieval.ranker,
+                pl_alpha=rr.pl_alpha,
+                pl_mmr_lambda=rr.mmr_lambda,
+                pl_samples=rr.pl_samples,
+                top_k=cfg.retrieval.top_k,
+                seed=rr.seed,
+                qid=qid,
+            )
 
         return [
             generate_deterministic_list(

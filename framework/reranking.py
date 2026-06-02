@@ -33,7 +33,7 @@ sys.path.insert(0, ROOT)
 
 from perturbation import plackettluce as pl_mod
 from framework.retrieval import normalize_scores_for_pl
-from framework.config import list_id_for_pl, list_id_for_mmr, list_id_for_deterministic
+from framework.config import list_id_for_pl, list_id_for_mmr, list_id_for_deterministic, list_id_for_pl_mmr
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +224,114 @@ def generate_mmr_list(
         param=f"lambda={mmr_lambda}",
         sample_idx=0,
     )
+
+
+# ---------------------------------------------------------------------------
+# PL-MMR hybrid (stochastic + diversity)
+# ---------------------------------------------------------------------------
+
+def generate_pl_mmr_lists(
+    retrieval_results_for_qid: List,   # [(pid, score), ...]
+    profiles_for_qid: List[Dict],      # profile dicts, same order as retrieval_results
+    ranker: str,
+    pl_alpha: int,
+    pl_mmr_lambda: float,
+    pl_samples: int,
+    top_k: int,
+    seed: int,
+    qid: str,
+) -> List[RetrievalList]:
+    """
+    Hybrid PL-MMR re-ranking.
+
+    Rank 1 is drawn via pure Plackett-Luce (Gumbel-max on log-scores).
+    Ranks 2..k are drawn sequentially with a diversity penalty applied in
+    log-score space before Gumbel sampling:
+
+        log_adj(d) = log(base_score(d)) + log(1 − (1 − λ) · max_sim(d, S))
+
+    where S is the set of already-selected documents and max_sim is the
+    maximum Jaccard similarity between d and any member of S.
+
+    At max_sim=0 (completely different doc) the score is unchanged.
+    At max_sim=1 (identical doc) it is penalised by log(λ).
+
+    Parameters
+    ----------
+    retrieval_results_for_qid : list of (pid, score) in deterministic rank order
+    profiles_for_qid          : profile dicts in the same order
+    ranker                    : e.g. "splade"; used for score normalisation
+    pl_alpha                  : temperature exponent; higher = more deterministic
+    pl_mmr_lambda             : diversity trade-off (0 = max diversity, 1 = pure PL)
+    pl_samples                : number of stochastic samples
+    top_k                     : list length cutoff
+    seed                      : numpy random seed
+    qid                       : query id
+
+    Returns
+    -------
+    List of ``RetrievalList``, one per sample, with ``method="pl_mmr"``.
+    """
+    np.random.seed(seed)
+
+    pids = [p[0] for p in retrieval_results_for_qid]
+    raw_scores = np.array([float(p[1]) for p in retrieval_results_for_qid], dtype=np.float64)
+
+    normed = normalize_scores_for_pl(raw_scores, ranker)
+    base_scores = normed ** pl_alpha          # shape (n_docs,)
+    log_base = np.log(np.maximum(base_scores, 1e-12))
+
+    # Build token sets for diversity
+    pid_to_tokens: Dict[str, frozenset] = {}
+    for pid, prof in zip(pids, profiles_for_qid):
+        pid_to_tokens[pid] = _profile_to_tokens(prof)
+
+    n_docs = len(pids)
+    cutoff = min(top_k, n_docs)
+    result: List[RetrievalList] = []
+
+    for sample_idx in range(pl_samples):
+        selected_indices: List[int] = []
+        remaining = list(range(n_docs))
+
+        for rank in range(cutoff):
+            # Build adjusted log-scores for remaining docs
+            adj_log = np.empty(len(remaining))
+            for k_r, i in enumerate(remaining):
+                if rank == 0 or not selected_indices:
+                    # First rank: pure PL, no diversity adjustment
+                    adj_log[k_r] = log_base[i]
+                else:
+                    max_sim = max(
+                        _jaccard_sim(pid_to_tokens[pids[i]], pid_to_tokens[pids[j]])
+                        for j in selected_indices
+                    )
+                    diversity_penalty = np.log(
+                        max(1.0 - (1.0 - pl_mmr_lambda) * max_sim, 1e-12)
+                    )
+                    adj_log[k_r] = log_base[i] + diversity_penalty
+
+            # Gumbel-max trick: sample one document
+            gumbel_noise = np.random.gumbel(size=len(remaining))
+            perturbed = adj_log + gumbel_noise
+            chosen_k = int(np.argmax(perturbed))
+            chosen_i = remaining[chosen_k]
+
+            selected_indices.append(chosen_i)
+            remaining.pop(chosen_k)
+
+        doc_ids = [pids[i] for i in selected_indices]
+        result.append(RetrievalList(
+            qid=qid,
+            list_id=list_id_for_pl_mmr(qid, sample_idx),
+            doc_ids=doc_ids,
+            det_indices=selected_indices,
+            method="pl_mmr",
+            param=f"alpha={pl_alpha},lambda={pl_mmr_lambda}",
+            sample_idx=sample_idx,
+        ))
+
+    return result
 
 
 # ---------------------------------------------------------------------------

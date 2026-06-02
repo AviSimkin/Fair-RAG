@@ -105,6 +105,9 @@ def setting_id(cfg: RunConfig) -> str:
     elif rr.method == "mmr":
         lambda_str = str(rr.mmr_lambda).replace(".", "")
         rerank_str = f"mmr_l{lambda_str}"
+    elif rr.method == "pl_mmr":
+        lambda_str = str(rr.mmr_lambda).replace(".", "")
+        rerank_str = f"pl_mmr_a{rr.pl_alpha}_l{lambda_str}_s{rr.pl_samples}"
     else:
         rerank_str = "det"
 
@@ -119,6 +122,11 @@ def setting_id(cfg: RunConfig) -> str:
 def list_id_for_pl(qid: str, sample_idx: int) -> str:
     """Retrieval list ID for the i-th Plackett-Luce sample."""
     return f"{qid}__pl_s{sample_idx:03d}"
+
+
+def list_id_for_pl_mmr(qid: str, sample_idx: int) -> str:
+    """Retrieval list ID for the i-th PL-MMR hybrid sample."""
+    return f"{qid}__pl_mmr_s{sample_idx:03d}"
 
 
 def list_id_for_mmr(qid: str) -> str:
